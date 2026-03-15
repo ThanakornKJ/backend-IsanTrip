@@ -12,7 +12,10 @@ router.get("/", protect, async (req, res) => {
   try {
 
     const festivals = await Festival.find()
-      .populate("festivalLocations.placeId", "placeName province")
+      .populate(
+        "festivalLocations.placeId",
+        "placeName province latitude longitude"
+      )
       .sort({ startDate: -1 });
 
     res.json(festivals);
@@ -28,7 +31,10 @@ router.get("/:id", protect, async (req, res) => {
   try {
 
     const festival = await Festival.findById(req.params.id)
-      .populate("festivalLocations.placeId", "placeName province");
+      .populate(
+        "festivalLocations.placeId",
+        "placeName province latitude longitude"
+      );
 
     if (!festival) {
       return res.status(404).json({ message: "Festival not found" });
