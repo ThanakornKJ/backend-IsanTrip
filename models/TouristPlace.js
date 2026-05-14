@@ -2,83 +2,51 @@ const mongoose = require("mongoose");
 
 const placeImageSchema = new mongoose.Schema({
   imageURL: String,
-  isCover: Boolean,
+  isCover: { type: Boolean, default: false },
 });
 
-// ---------------- ENUM DATA ----------------
-const categories = [
-  "",
-  "สถานที่ใหม่",
-  "ยอดนิยม",
-  "แนะนำ",
-];
-
-const provinces = [
-  "กาฬสินธุ์","ขอนแก่น","ชัยภูมิ","นครพนม","นครราชสีมา",
-  "บึงกาฬ","บุรีรัมย์","มหาสารคาม","มุกดาหาร","ยโสธร",
-  "ร้อยเอ็ด","เลย","ศรีสะเกษ","สกลนคร","สุรินทร์",
-  "หนองคาย","หนองบัวลำภู","อำนาจเจริญ","อุดรธานี","อุบลราชธานี",
-];
-
-const touristTypes = [
-  "ธรรมชาติ",
-  "อุทยานแห่งชาติ",
-  "น้ำตก",
-  "จุดชมวิว",
-  "ศาสนสถาน",
-  "ประวัติศาสตร์",
-  "พิพิธภัณฑ์",
-  "สวนเกษตร",
-  "นันทนาการ",
-  "ชุมชนท่องเที่ยว",
-  "วัฒนธรรม"
-];
-
-// ---------------- SCHEMA ----------------
 const touristPlaceSchema = new mongoose.Schema(
   {
-    placeName: { 
-      type: String, 
-      required: true 
+    placeName: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
     description: String,
+    address:     String,
 
-    address: String,
-
-    province: {
-      type: String,
-      enum: provinces
+    // 🔄 เปลี่ยนจาก String → ref Province
+    provinceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Province",
     },
 
-    latitude: Number,
+    latitude:  Number,
     longitude: Number,
 
     openingHours: {
       type: String,
-      trim: true
+      trim: true,
     },
 
-    category: {
-      type: String,
-      enum: categories,
-      default: ""
+    // 🔄 เปลี่ยนจาก String → ref Category
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
     },
 
-    touristType: [{
-      type: String,
-      enum: touristTypes
-    }],
+    // 🔄 เปลี่ยนจาก [String] → ref PlaceType
+    typeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PlaceType",
+    },
 
-    contact: String,
-
+    contact:     String,
     entranceFee: String,
-
     socialMedia: String,
-
-    highlight: String,
-
-    travelInfo: String,
+    highlight:   String,
+    travelInfo:  String,
 
     placeImages: [placeImageSchema],
   },

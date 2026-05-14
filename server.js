@@ -11,6 +11,10 @@ const tripRoutes = require("./routes/trips");
 const adminRoutes = require("./routes/admin");
 const favoriteRoutes = require("./routes/favorite");
 
+// เพิ่ม routes ใหม่เข้าไป
+const reviewRoutes  = require("./routes/review");
+const provinceRoutes = require("./routes/province");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -33,6 +37,9 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/admin", adminRoutes);
 app.use("/api/favorites", favoriteRoutes);
 
+app.use("/api/reviews",   reviewRoutes);
+app.use("/api/provinces", provinceRoutes);
+app.use("/uploads", express.static("uploads")); // ครอบคลุม uploads/reviews ด้วย
 
 // ================= TEST ROUTE =================
 app.get('/', (req, res) => {

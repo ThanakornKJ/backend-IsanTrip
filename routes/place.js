@@ -1,43 +1,57 @@
 const express = require("express");
 const TouristPlace = require("../models/TouristPlace");
-const protect = require("../middleware/authMiddleware");
-const authorize = require("../middleware/roleMiddleware");
+const Province    = require("../models/Province");
+const Category    = require("../models/Category");
+const PlaceType   = require("../models/PlaceType");
+const protect     = require("../middleware/authMiddleware");
+const authorize   = require("../middleware/roleMiddleware");
 const { uploadPlaces } = require("../middleware/upload");
 const router = express.Router();
 
-// ================= SEARCH PLACE =================
+// ================= SEARCH =================
 router.get("/search", protect, async (req, res) => {
   try {
     const { keyword, province } = req.query;
     let filter = {};
+
     if (province && province !== "ทุกจังหวัด") {
-      filter.province = province;
+      const prov = await Province.findOne({ name: province });
+      if (prov) filter.provinceId = prov._id;
     }
+
     if (keyword) {
       filter.$or = [
-        { placeName: { $regex: keyword, $options: "i" } },
+        { placeName:   { $regex: keyword, $options: "i" } },
         { description: { $regex: keyword, $options: "i" } },
       ];
     }
-    const places = await TouristPlace.find(filter);
+
+    const places = await TouristPlace.find(filter)
+      .populate("provinceId", "name")
+      .populate("categoryId", "name")
+      .populate("typeId", "name");
+
     res.json(places);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// ================= GET ALL PLACES (รองรับ filter province) =================
+// ================= GET ALL =================
 router.get("/", protect, async (req, res) => {
   try {
     const { province } = req.query;
-
     let filter = {};
 
     if (province && province !== "ทุกจังหวัด") {
-      filter.province = province;
+      const prov = await Province.findOne({ name: province });
+      if (prov) filter.provinceId = prov._id;
     }
 
-    const places = await TouristPlace.find(filter);
+    const places = await TouristPlace.find(filter)
+      .populate("provinceId", "name")
+      .populate("categoryId", "name")
+      .populate("typeId", "name");
 
     res.json(places);
   } catch (err) {
@@ -45,24 +59,24 @@ router.get("/", protect, async (req, res) => {
   }
 });
 
-
-// ================= GET PLACE BY ID =================
+// ================= GET BY ID =================
 router.get("/:id", protect, async (req, res) => {
   try {
-    const place = await TouristPlace.findById(req.params.id);
+    const place = await TouristPlace.findById(req.params.id)
+      .populate("provinceId", "name")
+      .populate("categoryId", "name")
+      .populate("typeId", "name");
 
     if (!place) {
       return res.status(404).json({ message: "Place not found" });
     }
-
     res.json(place);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-
-// ================= CREATE PLACE (ADMIN ONLY) =================
+// ================= CREATE (ADMIN) =================
 router.post(
   "/",
   protect,
@@ -71,53 +85,38 @@ router.post(
   async (req, res) => {
     try {
       const {
-        placeName,
-        description,
-        province,
-        latitude,
-        longitude,
-        category,
-        touristType,
-        openingHours,
-        contact,
-        price,
-        imageUrls 
+        placeName, description, address,
+        province, category, touristType,
+        openingHours, contact, entranceFee,
+        latitude, longitude,
+        socialMedia, highlight, travelInfo,
       } = req.body;
-      if (!placeName || !province) {
-        return res.status(400).json({
-          message: "placeName และ province จำเป็นต้องกรอก",
-        });
-      }
-      let placeImages = [];
-      if (req.files && req.files.length > 0) {
-        placeImages = req.files.map((file, index) => ({
-          imageURL: `uploads/places/${file.filename}`,
-          isCover: index === 0,
-        }));
-      }
-      if (imageUrls) {
-        const urls = Array.isArray(imageUrls)
-          ? imageUrls
-          : [imageUrls];
 
-        urls.forEach((url, index) => {
-          placeImages.push({
-            imageURL: url,
-            isCover: placeImages.length === 0 && index === 0,
-          });
-        });
+      if (!placeName) {
+        return res.status(400).json({ message: "placeName จำเป็นต้องกรอก" });
       }
+
+      // Resolve ObjectIds
+      const [provDoc, catDoc, typeDoc] = await Promise.all([
+        province   ? Province.findOne({ name: province })  : null,
+        category   ? Category.findOne({ name: category })  : null,
+        touristType? PlaceType.findOne({ name: touristType }): null,
+      ]);
+
+      let placeImages = req.files?.map((file, i) => ({
+        imageURL: `uploads/places/${file.filename}`,
+        isCover: i === 0,
+      })) || [];
+
       const newPlace = await TouristPlace.create({
-        placeName,
-        description,
-        province,
-        latitude,
-        longitude,
-        category,
-        touristType,
-        openingHours,
-        contact,
-        price,
+        placeName, description, address,
+        provinceId:  provDoc?._id,
+        categoryId:  catDoc?._id,
+        typeId:      typeDoc?._id,
+        openingHours, contact, entranceFee,
+        latitude:  latitude  ? Number(latitude)  : undefined,
+        longitude: longitude ? Number(longitude) : undefined,
+        socialMedia, highlight, travelInfo,
         placeImages,
       });
 
@@ -128,8 +127,7 @@ router.post(
   }
 );
 
-
-// ================= UPDATE PLACE (ADMIN ONLY) =================
+// ================= UPDATE (ADMIN) =================
 router.put(
   "/:id",
   protect,
@@ -138,130 +136,89 @@ router.put(
   async (req, res) => {
     try {
       const {
-        placeName,
-        description,
-        province,
-        latitude,
-        longitude,
-        category,
-        touristType,
-        openingHours,
-        contact,
-        price
+        placeName, description, address,
+        province, category, touristType,
+        openingHours, contact, entranceFee,
+        latitude, longitude,
+        socialMedia, highlight, travelInfo,
       } = req.body;
-      let updateData = {
-        placeName,
-        description,
-        province,
-        latitude,
-        longitude,
-        category,
-        touristType,
-        openingHours,
-        contact,
-        price
+
+      const [provDoc, catDoc, typeDoc] = await Promise.all([
+        province    ? Province.findOne({ name: province })   : null,
+        category    ? Category.findOne({ name: category })   : null,
+        touristType ? PlaceType.findOne({ name: touristType }): null,
+      ]);
+
+      const updateData = {
+        ...(placeName    && { placeName }),
+        ...(description  && { description }),
+        ...(address      && { address }),
+        ...(provDoc      && { provinceId: provDoc._id }),
+        ...(catDoc       && { categoryId: catDoc._id }),
+        ...(typeDoc      && { typeId: typeDoc._id }),
+        ...(openingHours && { openingHours }),
+        ...(contact      && { contact }),
+        ...(entranceFee  && { entranceFee }),
+        ...(latitude     && { latitude: Number(latitude) }),
+        ...(longitude    && { longitude: Number(longitude) }),
+        ...(socialMedia  && { socialMedia }),
+        ...(highlight    && { highlight }),
+        ...(travelInfo   && { travelInfo }),
       };
-      if (req.files && req.files.length > 0) {
-        const placeImages = req.files.map((file, index) => ({
+
+      if (req.files?.length > 0) {
+        updateData.placeImages = req.files.map((file, i) => ({
           imageURL: `uploads/places/${file.filename}`,
-          isCover: index === 0
+          isCover: i === 0,
         }));
-        updateData.placeImages = placeImages;
       }
-      const updatedPlace = await TouristPlace.findByIdAndUpdate(
+
+      const updated = await TouristPlace.findByIdAndUpdate(
         req.params.id,
         updateData,
         { new: true }
-      );
-      if (!updatedPlace) {
+      )
+        .populate("provinceId", "name")
+        .populate("categoryId", "name")
+        .populate("typeId", "name");
+
+      if (!updated) {
         return res.status(404).json({ message: "Place not found" });
       }
-      res.json(updatedPlace);
+
+      res.json(updated);
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
   }
 );
 
-
-// ================= DELETE PLACE (ADMIN ONLY) =================
+// ================= DELETE (ADMIN) =================
 router.delete("/:id", protect, authorize("admin"), async (req, res) => {
   try {
-    const deletedPlace = await TouristPlace.findByIdAndDelete(req.params.id);
-
-    if (!deletedPlace) {
+    const deleted = await TouristPlace.findByIdAndDelete(req.params.id);
+    if (!deleted) {
       return res.status(404).json({ message: "Place not found" });
     }
-
     res.json({ message: "Place deleted successfully" });
-
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// ================= GET PLACE BY CATEGORY =================
+// ================= GET BY CATEGORY =================
 router.get("/category/:category", async (req, res) => {
   try {
+    const catDoc = await Category.findOne({ name: req.params.category });
+    if (!catDoc) return res.json([]);
 
-    const places = await TouristPlace.find({
-      category: req.params.category
-    }).lean();
+    const places = await TouristPlace.find({ categoryId: catDoc._id })
+      .populate("provinceId", "name")
+      .lean();
 
     res.json(places);
-
   } catch (err) {
-    console.error("GET CATEGORY ERROR:", err);
     res.status(500).json({ message: "Server error" });
-  }
-});
-
-function interpolatePoints(start, end, steps = 20) {
-  const points = [];
-
-  for (let i = 0; i <= steps; i++) {
-    const lat =
-      start.lat + (end.lat - start.lat) * (i / steps);
-
-    const lng =
-      start.lng + (end.lng - start.lng) * (i / steps);
-
-    points.push({ lat, lng });
-  }
-
-  return points;
-}
-
-router.post("/route-recommendations", async (req, res) => {
-  try {
-    const { startLat, startLng, endLat, endLng } = req.body;
-
-    const points = interpolatePoints(
-      { lat: startLat, lng: startLng },
-      { lat: endLat, lng: endLng },
-      25
-    );
-    let results = [];
-    for (let p of points) {
-      const places = await TouristPlace.find({
-        location: {
-          $near: {
-            $geometry: {
-              type: "Point",
-              coordinates: [p.lng, p.lat]
-            },
-            $maxDistance: 30000
-          }
-        }
-      }).limit(5);
-      results.push(...places);
-    }
-    const unique = [
-      ...new Map(results.map(item => [item._id, item])).values()
-    ];
-    res.json(unique);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 

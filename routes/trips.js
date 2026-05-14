@@ -17,53 +17,58 @@ const storage = multer.diskStorage({
 
 
 /// ================= CREATE TRIP =================
-router.post(
-  "/create",
-  protect,
-  uploadTrips.array("tripImages", 10),
-  async (req, res) => {
-    try {
-      const { tripName, startDate, endDate, description, tripPlaces, startLocation } = req.body;
-      if (!tripName || !startDate || !endDate) {
-        return res.status(400).json({
-          message: "tripName, startDate และ endDate จำเป็นต้องกรอก",
-        });
-      }
-      let sortedPlaces = [];
-      if (tripPlaces) {
-        const parsedPlaces = JSON.parse(tripPlaces);
-        sortedPlaces = parsedPlaces
-          .map((p) => ({
-            placeId: p.placeId,
-            sequenceNo: p.sequenceNo
-          }))
-          .sort((a, b) => a.sequenceNo - b.sequenceNo);
-      }
-      let imageUrls = [];
-      if (req.files && req.files.length > 0) {
-        imageUrls = req.files.map((file) => {
-          return `${req.protocol}://${req.get("host")}/uploads/trips/${file.filename}`;
-        });
-      }
-      const trip = await Trip.create({
-        userId: req.user._id,
-        tripName,
-        startDate,
-        endDate,
-        startLocation,
-        description,
-        images: imageUrls,
-        tripPlaces: sortedPlaces,
-      });
-      const populatedTrip = await Trip.findById(trip._id)
-        .populate("tripPlaces.placeId");
-      res.status(201).json(populatedTrip);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: "Create trip failed" });
+// เฉพาะส่วนที่เปลี่ยน — Create Trip
+router.post("/create", protect, uploadTrips.array("tripImages", 10), async (req, res) => {
+  try {
+    const {
+      tripName, startDate, endDate,
+      description, tripPlaces, tripFestivals, startLocation,
+    } = req.body;
+
+    if (!tripName || !startDate || !endDate) {
+      return res.status(400).json({ message: "tripName, startDate และ endDate จำเป็นต้องกรอก" });
     }
+
+    let sortedPlaces = [];
+    if (tripPlaces) {
+      sortedPlaces = JSON.parse(tripPlaces)
+        .map((p) => ({ placeId: p.placeId, sequenceNo: p.sequenceNo, visitDate: p.visitDate || null }))
+        .sort((a, b) => a.sequenceNo - b.sequenceNo);
+    }
+
+    // 🆕 Parse tripFestivals
+    let parsedFestivals = [];
+    if (tripFestivals) {
+      parsedFestivals = JSON.parse(tripFestivals).map((f) => ({
+        festivalId:  f.festivalId,
+        attendDate:  f.attendDate || null,
+      }));
+    }
+
+    // 🔄 เปลี่ยนจาก images:[String] → tripImages:[{imageURL, isCover}]
+    const tripImages = req.files?.map((file, i) => ({
+      imageURL: `uploads/trips/${file.filename}`,
+      isCover: i === 0,
+    })) || [];
+
+    const trip = await Trip.create({
+      userId: req.user._id,
+      tripName, startDate, endDate, startLocation, description,
+      tripImages,
+      tripPlaces:    sortedPlaces,
+      tripFestivals: parsedFestivals,
+    });
+
+    const populated = await Trip.findById(trip._id)
+      .populate("tripPlaces.placeId")
+      .populate("tripFestivals.festivalId", "festivalName startDate endDate");
+
+    res.status(201).json(populated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Create trip failed" });
   }
-);
+});
 
 
 /// ================= GET MY TRIPS =================
