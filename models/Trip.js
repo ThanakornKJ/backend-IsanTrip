@@ -1,68 +1,177 @@
 const mongoose = require("mongoose");
 
-// รายการสถานที่ในทริป
-const tripPlaceSchema = new mongoose.Schema({
-  placeId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "TouristPlace",
-    required: true,
-  },
-  sequenceNo: {
-    type: Number,
-    required: true,
-  },
-  visitDate: Date,
-});
+// =====================================================
+// ================= TRIP IMAGE =========================
+// =====================================================
+const tripImageSchema = new mongoose.Schema(
+  {
+    imageURL: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-// 🆕 รายการเทศกาลในทริป (TripFestival)
-const tripFestivalSchema = new mongoose.Schema({
-  festivalId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Festival",
-    required: true,
+    isCover: {
+      type: Boolean,
+      default: false,
+    },
   },
-  attendDate: Date,
-});
+  { _id: false }
+);
 
-// 🔄 Trip Image ที่มี isCover (เดิมเก็บเป็น String[])
-const tripImageSchema = new mongoose.Schema({
-  imageURL: { type: String, required: true },
-  isCover:  { type: Boolean, default: false },
-});
+// =====================================================
+// ================= TRIP PLACE =========================
+// =====================================================
+const tripPlaceSchema = new mongoose.Schema(
+  {
+    placeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TouristPlace",
+      required: true,
+    },
 
+    sequenceNo: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+
+    visitDate: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+// =====================================================
+// ================= TRIP FESTIVAL ======================
+// =====================================================
+const tripFestivalSchema = new mongoose.Schema(
+  {
+    festivalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Festival",
+      required: true,
+    },
+
+    attendDate: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+// =====================================================
+// ================= TRIP ===============================
+// =====================================================
 const tripSchema = new mongoose.Schema(
   {
+    // เจ้าของทริป
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
     tripName: {
       type: String,
       required: true,
       trim: true,
+      maxlength: 200,
     },
 
-    startDate:     { type: Date, required: true },
-    endDate:       { type: Date, required: true },
-    startLocation: String,
-    description:   String,
+    startDate: {
+      type: Date,
+      required: true,
+    },
+
+    endDate: {
+      type: Date,
+      required: true,
+    },
+
+    startLocation: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    description: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
     isPublic: {
       type: Boolean,
       default: false,
+      index: true,
     },
 
-    // 🔄 เปลี่ยนจาก images: [String] → tripImages: [tripImageSchema]
-    tripImages: [tripImageSchema],
+    // รูปทริป
+    tripImages: {
+      type: [tripImageSchema],
+      default: [],
+    },
 
-    tripPlaces:    [tripPlaceSchema],
+    // รายการสถานที่ในทริป
+    tripPlaces: {
+      type: [tripPlaceSchema],
+      default: [],
+    },
 
-    // 🆕 เพิ่ม tripFestivals
-    tripFestivals: [tripFestivalSchema],
+    // รายการเทศกาลในทริป
+    tripFestivals: {
+      type: [tripFestivalSchema],
+      default: [],
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-module.exports = mongoose.model("Trip", tripSchema);
+// =====================================================
+// ================= INDEXES ============================
+// =====================================================
+
+// สำหรับ feed public trips
+tripSchema.index({
+  isPublic: 1,
+  createdAt: -1,
+});
+
+// สำหรับ my trips
+tripSchema.index({
+  userId: 1,
+  createdAt: -1,
+});
+
+// =====================================================
+// ================= VALIDATION =========================
+// =====================================================
+
+// กัน endDate < startDate
+tripSchema.pre("save", function (next) {
+  if (
+    this.startDate &&
+    this.endDate &&
+    this.endDate < this.startDate
+  ) {
+    return next(
+      new Error(
+        "endDate ต้องมากกว่า startDate"
+      )
+    );
+  }
+
+  next();
+});
+
+module.exports = mongoose.model(
+  "Trip",
+  tripSchema
+);

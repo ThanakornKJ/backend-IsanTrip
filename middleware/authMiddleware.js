@@ -1,35 +1,116 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-const protect = async (req, res, next) => {
+const protect = async (
+  req,
+  res,
+  next
+) => {
   try {
     let token;
 
+    // =====================================
+    // GET TOKEN FROM HEADER
+    // Authorization: Bearer xxxxx
+    // =====================================
+    const authHeader =
+      req.headers.authorization;
+
     if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith("Bearer")
+      authHeader &&
+      authHeader.startsWith(
+        "Bearer "
+      )
     ) {
-      token = req.headers.authorization.split(" ")[1];
+      token =
+        authHeader.split(
+          " "
+        )[1];
     }
 
+    // =====================================
+    // NO TOKEN
+    // =====================================
     if (!token) {
-      return res.status(401).json({ message: "No token" });
+      return res.status(401).json({
+        message:
+          "Unauthorized: No token",
+      });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // =====================================
+    // VERIFY JWT
+    // =====================================
+    const decoded =
+      jwt.verify(
+        token,
+        process.env.JWT_SECRET
+      );
 
-    const user = await User.findById(decoded.id).select("-password");
+    // =====================================
+    // FIND USER
+    // =====================================
+    const user =
+      await User.findById(
+        decoded.id
+      ).select("-password");
 
     if (!user) {
-      return res.status(401).json({ message: "User not found" });
+      return res.status(401).json({
+        message:
+          "Unauthorized: User not found",
+      });
     }
 
-    req.user = user;  // 🔥 ตอนนี้ req.user มี _id แน่นอน
+    // =====================================
+    // ATTACH USER TO REQUEST
+    // =====================================
+    req.user = {
+      _id: user._id,
+      fullName:
+        user.fullName,
+      email: user.email,
+      profileImage:
+        user.profileImage,
+      userType:
+        user.userType,
+      facebookId:
+        user.facebookId,
+    };
 
     next();
   } catch (error) {
-    console.error(error);
-    return res.status(401).json({ message: "Token invalid" });
+    console.error(
+      "AUTH ERROR:",
+      error
+    );
+
+    // JWT EXPIRED
+    if (
+      error.name ===
+      "TokenExpiredError"
+    ) {
+      return res.status(401).json({
+        message:
+          "Token expired",
+      });
+    }
+
+    // JWT INVALID
+    if (
+      error.name ===
+      "JsonWebTokenError"
+    ) {
+      return res.status(401).json({
+        message:
+          "Invalid token",
+      });
+    }
+
+    return res.status(401).json({
+      message:
+        "Unauthorized",
+    });
   }
 };
 

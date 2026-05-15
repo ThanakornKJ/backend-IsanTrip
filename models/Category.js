@@ -1,15 +1,41 @@
-const mongoose = require("mongoose");
+const mongoose =
+  require(
+    "mongoose"
+  );
 
-const categorySchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
+const categorySchema =
+  new mongoose.Schema(
+    {
+      categoryName:
+        {
+          type:
+            String,
+          required:
+            true,
+          unique:
+            true,
+          trim: true,
+          minlength: 2,
+          maxlength: 100,
+        },
     },
-  },
-  { timestamps: true }
-);
+    {
+      timestamps:
+        true,
+      versionKey:
+        false,
+    }
+  );
 
-module.exports = mongoose.model("Category", categorySchema);
+// categorySchema.index(
+//   {
+//     categoryName:
+//       1,
+//   }
+// );
+
+module.exports =
+  mongoose.model(
+    "Category",
+    categorySchema
+  );

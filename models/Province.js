@@ -1,15 +1,41 @@
-const mongoose = require("mongoose");
+const mongoose =
+  require(
+    "mongoose"
+  );
 
-const provinceSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
+const provinceSchema =
+  new mongoose.Schema(
+    {
+      provinceName:
+        {
+          type:
+            String,
+          required:
+            true,
+          unique:
+            true,
+          trim: true,
+          minlength: 2,
+          maxlength: 100,
+        },
     },
-  },
-  { timestamps: true }
-);
+    {
+      timestamps:
+        true,
+      versionKey:
+        false,
+    }
+  );
 
-module.exports = mongoose.model("Province", provinceSchema);
+// provinceSchema.index(
+//   {
+//     provinceName:
+//       1,
+//   }
+// );
+
+module.exports =
+  mongoose.model(
+    "Province",
+    provinceSchema
+  );

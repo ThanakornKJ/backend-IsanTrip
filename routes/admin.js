@@ -4,10 +4,86 @@ const router = express.Router();
 const User = require("../models/User");
 const TouristPlace = require("../models/TouristPlace");
 const Trip = require("../models/Trip");
+const Festival = require("../models/Festival");
+const Review = require("../models/Review");
+
+const Province = require("../models/Province");
+const Category = require("../models/Category");
+const PlaceType = require("../models/PlaceType");
 
 const protect = require("../middleware/authMiddleware");
 const authorize = require("../middleware/roleMiddleware");
-const { uploadPlaces, uploadTrips } = require("../middleware/upload");
+
+const {
+  uploadPlaces,
+  uploadTrips,
+  uploadFestivals,
+} = require("../middleware/upload");
+
+
+// =====================================================
+// ================= POPULATE CONFIG ===================
+// =====================================================
+const PLACE_POPULATE = [
+  {
+    path: "provinceId",
+    select: "name",
+  },
+  {
+    path: "categoryId",
+    select: "name",
+  },
+  {
+    path: "typeId",
+    select: "name",
+  },
+];
+
+const TRIP_POPULATE = [
+  {
+    path: "userId",
+    select:
+      "fullName email profileImage",
+  },
+
+  {
+    path:
+      "tripPlaces.placeId",
+
+    populate: [
+      {
+        path:
+          "provinceId",
+        select:
+          "name",
+      },
+      {
+        path:
+          "categoryId",
+        select:
+          "name",
+      },
+      {
+        path:
+          "typeId",
+        select:
+          "name",
+      },
+    ],
+  },
+
+  {
+    path:
+      "tripFestivals.festivalId",
+
+    populate: {
+      path:
+        "provinceId",
+      select:
+        "name",
+    },
+  },
+];
 
 
 // =====================================================
@@ -17,49 +93,153 @@ router.post(
   "/places",
   protect,
   authorize("admin"),
-  uploadPlaces.array("images", 10),
+  uploadPlaces.array(
+    "images",
+    10
+  ),
+
   async (req, res) => {
     try {
-
       const {
-        name,
-        type,
-        category,
-        province,
+        placeName,
         description,
+        address,
+        province,
+        category,
+        touristType,
         openingHours,
         contact,
-        price,
+        entranceFee,
         latitude,
         longitude,
+        socialMedia,
+        highlight,
+        travelInfo,
       } = req.body;
 
-      const imagePaths = req.files?.map((file, index) => ({
-        imageURL: `/uploads/places/${file.filename}`,
-        isCover: index === 0,
-      })) || [];
+      if (!placeName) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "placeName required",
+          });
+      }
 
-      const newPlace = new TouristPlace({
-        placeName: name,
-        touristType: type ? type.split(",") : [],
-        category: category,
-        province: province,
-        description: description,
-        openingHours: openingHours,
-        contact: contact,
-        entranceFee: price, // 🔥 เปลี่ยนตรงนี้
-        latitude: latitude ? Number(latitude) : 0,
-        longitude: longitude ? Number(longitude) : 0,
-        placeImages: imagePaths,
-      });
+      // resolve ids
+      const [
+        provinceDoc,
+        categoryDoc,
+        typeDoc,
+      ] =
+        await Promise.all([
+          province
+            ? Province.findOne(
+                {
+                  name:
+                    province,
+                }
+              )
+            : null,
 
-      await newPlace.save();
+          category
+            ? Category.findOne(
+                {
+                  name:
+                    category,
+                }
+              )
+            : null,
 
-      res.status(201).json({ message: "เพิ่มสถานที่สำเร็จ" });
+          touristType
+            ? PlaceType.findOne(
+                {
+                  name:
+                    touristType,
+                }
+              )
+            : null,
+        ]);
+
+      const placeImages =
+        req.files?.map(
+          (
+            file,
+            index
+          ) => ({
+            imageURL:
+              `uploads/places/${file.filename}`,
+
+            isCover:
+              index ===
+              0,
+          })
+        ) || [];
+
+      const newPlace =
+        await TouristPlace.create(
+          {
+            placeName,
+            description,
+            address,
+
+            provinceId:
+              provinceDoc?._id,
+
+            categoryId:
+              categoryDoc?._id,
+
+            typeId:
+              typeDoc?._id,
+
+            openingHours,
+            contact,
+            entranceFee,
+
+            latitude:
+              latitude
+                ? Number(
+                    latitude
+                  )
+                : undefined,
+
+            longitude:
+              longitude
+                ? Number(
+                    longitude
+                  )
+                : undefined,
+
+            socialMedia,
+            highlight,
+            travelInfo,
+
+            placeImages,
+          }
+        );
+
+      const populated =
+        await TouristPlace.findById(
+          newPlace._id
+        ).populate(
+          PLACE_POPULATE
+        );
+
+      res
+        .status(201)
+        .json(populated);
 
     } catch (err) {
-      console.error("CREATE PLACE ERROR:", err);
-      res.status(500).json({ message: "Server error" });
+      console.error(
+        "CREATE PLACE ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -72,37 +252,96 @@ router.get(
   "/places",
   protect,
   authorize("admin"),
+
   async (req, res) => {
     try {
+      const places =
+        await TouristPlace.find()
+          .populate(
+            PLACE_POPULATE
+          )
+          .sort({
+            createdAt:
+              -1,
+          })
+          .lean();
 
-      const places = await TouristPlace.find().lean();
+      const formatted =
+        places.map(
+          (p) => {
+            const cover =
+              p.placeImages?.find(
+                (
+                  img
+                ) =>
+                  img.isCover
+              ) ||
+              p
+                .placeImages?.[0];
 
-      const formatted = places.map((p) => ({
-        _id: p._id,
-        name: p.placeName,
-        province: p.province,
-        type: p.touristType,
-        category: p.category,
-        description: p.description,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        openingHours: p.openingHours,
-        image:
-          p.placeImages && p.placeImages.length > 0
-            ? p.placeImages.find((img) => img.isCover)?.imageURL ||
-              p.placeImages[0].imageURL
-            : null,
-      }));
+            return {
+              _id:
+                p._id,
 
-      res.json(formatted);
+              placeName:
+                p.placeName,
+
+              province:
+                p
+                  .provinceId
+                  ?.name ||
+                "",
+
+              category:
+                p
+                  .categoryId
+                  ?.name ||
+                "",
+
+              touristType:
+                p
+                  .typeId
+                  ?.name ||
+                "",
+
+              description:
+                p.description,
+
+              latitude:
+                p.latitude,
+
+              longitude:
+                p.longitude,
+
+              openingHours:
+                p.openingHours,
+
+              image:
+                cover
+                  ?.imageURL ||
+                null,
+            };
+          }
+        );
+
+      res.json(
+        formatted
+      );
 
     } catch (err) {
-      console.error("GET PLACES ERROR:", err);
-      res.status(500).json({ message: "Server error" });
+      console.error(
+        "GET PLACES ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
-
 
 // =====================================================
 // ================= UPDATE PLACE ======================
@@ -111,63 +350,250 @@ router.put(
   "/places/:id",
   protect,
   authorize("admin"),
-  uploadPlaces.array("images", 10),
+  uploadPlaces.array(
+    "images",
+    10
+  ),
+
   async (req, res) => {
     try {
-
-      const { id } = req.params;
-
-      const place = await TouristPlace.findById(id);
+      const place =
+        await TouristPlace.findById(
+          req.params.id
+        );
 
       if (!place) {
-        return res.status(404).json({ message: "ไม่พบสถานที่" });
+        return res.status(404)
+          .json({
+            message:
+              "Place not found",
+          });
       }
 
       const {
-        name,
-        type,
-        category,
-        province,
+        placeName,
         description,
+        address,
+        province,
+        category,
+        touristType,
         openingHours,
         contact,
-        price,
+        entranceFee,
         latitude,
         longitude,
+        socialMedia,
+        highlight,
+        travelInfo,
       } = req.body;
 
-      place.placeName = name ?? place.placeName;
-      if (type) {
-        place.touristType = type.split(",");
-      } else if (touristType) {
-        place.touristType = touristType.split(",");
+      // ==========================================
+      // resolve relation ids
+      // ==========================================
+      const [
+        provinceDoc,
+        categoryDoc,
+        typeDoc,
+      ] =
+        await Promise.all([
+          province
+            ? Province.findOne({
+                name:
+                  province,
+              })
+            : null,
+
+          category
+            ? Category.findOne({
+                name:
+                  category,
+              })
+            : null,
+
+          touristType
+            ? PlaceType.findOne({
+                name:
+                  touristType,
+              })
+            : null,
+        ]);
+
+      const updateData =
+        {};
+
+      // ==========================================
+      // basic fields
+      // ==========================================
+      if (
+        placeName !==
+        undefined
+      ) {
+        updateData.placeName =
+          placeName;
       }
-      place.category = category ?? place.category;
-      place.province = province ?? place.province;
-      place.description = description ?? place.description;
-      place.openingHours = openingHours ?? place.openingHours;
-      place.contact = contact ?? place.contact;
-      place.entranceFee = price ?? place.entranceFee;
-      place.latitude = latitude ? Number(latitude) : place.latitude;
-      place.longitude = longitude ? Number(longitude) : place.longitude;
 
-      if (req.files && req.files.length > 0) {
-
-        const imagePaths = req.files.map((file, index) => ({
-          imageURL: `/uploads/places/${file.filename}`,
-          isCover: index === 0,
-        }));
-
-        place.placeImages = imagePaths;
+      if (
+        description !==
+        undefined
+      ) {
+        updateData.description =
+          description;
       }
 
-      await place.save();
+      if (
+        address !==
+        undefined
+      ) {
+        updateData.address =
+          address;
+      }
 
-      res.json({ message: "แก้ไขสำเร็จ" });
+      if (
+        openingHours !==
+        undefined
+      ) {
+        updateData.openingHours =
+          openingHours;
+      }
+
+      if (
+        contact !==
+        undefined
+      ) {
+        updateData.contact =
+          contact;
+      }
+
+      if (
+        entranceFee !==
+        undefined
+      ) {
+        updateData.entranceFee =
+          entranceFee;
+      }
+
+      if (
+        socialMedia !==
+        undefined
+      ) {
+        updateData.socialMedia =
+          socialMedia;
+      }
+
+      if (
+        highlight !==
+        undefined
+      ) {
+        updateData.highlight =
+          highlight;
+      }
+
+      if (
+        travelInfo !==
+        undefined
+      ) {
+        updateData.travelInfo =
+          travelInfo;
+      }
+
+      // ==========================================
+      // relation ids
+      // ==========================================
+      if (
+        provinceDoc
+      ) {
+        updateData.provinceId =
+          provinceDoc._id;
+      }
+
+      if (
+        categoryDoc
+      ) {
+        updateData.categoryId =
+          categoryDoc._id;
+      }
+
+      if (
+        typeDoc
+      ) {
+        updateData.typeId =
+          typeDoc._id;
+      }
+
+      // ==========================================
+      // location
+      // ==========================================
+      if (
+        latitude !==
+        undefined
+      ) {
+        updateData.latitude =
+          Number(
+            latitude
+          );
+      }
+
+      if (
+        longitude !==
+        undefined
+      ) {
+        updateData.longitude =
+          Number(
+            longitude
+          );
+      }
+
+      // ==========================================
+      // images
+      // ==========================================
+      if (
+        req.files &&
+        req.files.length >
+          0
+      ) {
+        updateData.placeImages =
+          req.files.map(
+            (
+              file,
+              index
+            ) => ({
+              imageURL:
+                `uploads/places/${file.filename}`,
+
+              isCover:
+                index ===
+                0,
+            })
+          );
+      }
+
+      const updated =
+        await TouristPlace.findByIdAndUpdate(
+          req.params.id,
+          updateData,
+          {
+            new: true,
+            runValidators: true,
+          }
+        ).populate(
+          PLACE_POPULATE
+        );
+
+      res.json(
+        updated
+      );
 
     } catch (err) {
-      console.error("UPDATE ERROR:", err);
-      res.status(500).json({ message: "Server error" });
+      console.error(
+        "UPDATE PLACE ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -180,22 +606,38 @@ router.delete(
   "/places/:id",
   protect,
   authorize("admin"),
+
   async (req, res) => {
     try {
+      const deleted =
+        await TouristPlace.findByIdAndDelete(
+          req.params.id
+        );
 
-      const place = await TouristPlace.findById(req.params.id);
-
-      if (!place) {
-        return res.status(404).json({ message: "ไม่พบสถานที่" });
+      if (!deleted) {
+        return res.status(404)
+          .json({
+            message:
+              "Place not found",
+          });
       }
 
-      await place.deleteOne();
-
-      res.json({ message: "ลบสำเร็จ" });
+      res.json({
+        message:
+          "Place deleted successfully",
+      });
 
     } catch (err) {
-      console.error("DELETE ERROR:", err);
-      res.status(500).json({ message: "Server error" });
+      console.error(
+        "DELETE PLACE ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -208,22 +650,47 @@ router.get(
   "/stats",
   protect,
   authorize("admin"),
+
   async (req, res) => {
     try {
+      const [
+        totalUsers,
+        totalPlaces,
+        totalTrips,
+        totalFestivals,
+        totalReviews,
+      ] =
+        await Promise.all([
+          User.countDocuments(),
 
-      const totalUsers = await User.countDocuments();
-      const totalPlaces = await TouristPlace.countDocuments();
-      const totalTrips = await Trip.countDocuments();
+          TouristPlace.countDocuments(),
+
+          Trip.countDocuments(),
+
+          Festival.countDocuments(),
+
+          Review.countDocuments(),
+        ]);
 
       res.json({
         totalUsers,
         totalPlaces,
         totalTrips,
+        totalFestivals,
+        totalReviews,
       });
 
     } catch (err) {
-      console.error("STATS ERROR:", err);
-      res.status(500).json({ message: err.message });
+      console.error(
+        "STATS ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -240,23 +707,48 @@ router.put(
   async (req, res) => {
     try {
 
-      const { tripName, startDate, endDate, description, tripPlaces, startLocation } = req.body;
+      const {
+        tripName,
+        startDate,
+        endDate,
+        description,
+        startLocation,
+        tripPlaces,
+        tripFestivals,
+        isPublic
+      } = req.body;
 
-      let sortedPlaces = [];
+      // ================= PARSE TRIP PLACES =================
+      let parsedPlaces = [];
 
       if (tripPlaces) {
-
-        const parsed =
+        const data =
           typeof tripPlaces === "string"
             ? JSON.parse(tripPlaces)
             : tripPlaces;
 
-        sortedPlaces = parsed
-          .map(p => ({
+        parsedPlaces = data
+          .map((p) => ({
             placeId: p.placeId,
-            sequenceNo: p.sequenceNo
+            sequenceNo: Number(p.sequenceNo),
+            visitDate: p.visitDate || null
           }))
           .sort((a, b) => a.sequenceNo - b.sequenceNo);
+      }
+
+      // ================= PARSE TRIP FESTIVALS =================
+      let parsedFestivals = [];
+
+      if (tripFestivals) {
+        const data =
+          typeof tripFestivals === "string"
+            ? JSON.parse(tripFestivals)
+            : tripFestivals;
+
+        parsedFestivals = data.map((f) => ({
+          festivalId: f.festivalId,
+          attendDate: f.attendDate || null
+        }));
       }
 
       const updateData = {};
@@ -264,37 +756,73 @@ router.put(
       if (tripName) updateData.tripName = tripName;
       if (startDate) updateData.startDate = startDate;
       if (endDate) updateData.endDate = endDate;
-      if (startLocation) updateData.startLocation = startLocation;
       if (description) updateData.description = description;
-      if (sortedPlaces.length > 0) updateData.tripPlaces = sortedPlaces;
+      if (startLocation)
+        updateData.startLocation = startLocation;
 
-      if (req.files && req.files.length > 0) {
-
-        const imagePaths = req.files.map(
-          (file) => `/uploads/trips/${file.filename}`
-        );
-
-        updateData.images = imagePaths;
+      if (typeof isPublic !== "undefined") {
+        updateData.isPublic =
+          isPublic === true || isPublic === "true";
       }
 
-      const updatedTrip = await Trip.findByIdAndUpdate(
-        req.params.id,
-        updateData,
-        {
-          returnDocument: "after",
-          runValidators: true
-        }
-      ).populate("tripPlaces.placeId");
+      if (parsedPlaces.length > 0) {
+        updateData.tripPlaces = parsedPlaces;
+      }
+
+      if (parsedFestivals.length > 0) {
+        updateData.tripFestivals = parsedFestivals;
+      }
+
+      // ================= UPDATE IMAGES =================
+      if (req.files?.length > 0) {
+
+        updateData.tripImages = req.files.map(
+          (file, index) => ({
+            imageURL: `/uploads/trips/${file.filename}`,
+            isCover: index === 0,
+          })
+        );
+      }
+
+      const updatedTrip =
+        await Trip.findByIdAndUpdate(
+          req.params.id,
+          updateData,
+          {
+            new: true,
+            runValidators: true
+          }
+        )
+          .populate(
+            "tripPlaces.placeId",
+            "placeName provinceId placeImages"
+          )
+          .populate(
+            "tripFestivals.festivalId",
+            "festivalName startDate endDate"
+          )
+          .populate(
+            "userId",
+            "fullName email profileImage"
+          );
 
       if (!updatedTrip) {
-        return res.status(404).json({ message: "Trip not found" });
+        return res.status(404).json({
+          message: "Trip not found"
+        });
       }
 
       res.json(updatedTrip);
 
     } catch (err) {
-      console.error("ADMIN UPDATE TRIP ERROR:", err);
-      res.status(500).json({ message: "Update trip failed" });
+      console.error(
+        "ADMIN UPDATE TRIP ERROR:",
+        err
+      );
+
+      res.status(500).json({
+        message: "Update trip failed"
+      });
     }
   }
 );
@@ -310,8 +838,18 @@ router.get(
     try {
 
       const trips = await Trip.find()
-        .populate("tripPlaces.placeId")
-        .populate("userId", "fullName profileImage email")
+        .populate(
+          "tripPlaces.placeId",
+          "placeName provinceId placeImages"
+        )
+        .populate(
+          "tripFestivals.festivalId",
+          "festivalName startDate endDate"
+        )
+        .populate(
+          "userId",
+          "fullName profileImage email"
+        )
         .sort({ createdAt: -1 })
         .lean();
 
@@ -335,11 +873,23 @@ router.get(
     try {
 
       const trip = await Trip.findById(req.params.id)
-        .populate("tripPlaces.placeId")
-        .populate("userId", "fullName email profileImage");
+        .populate(
+          "tripPlaces.placeId",
+          "placeName provinceId placeImages"
+        )
+        .populate(
+          "tripFestivals.festivalId",
+          "festivalName startDate endDate"
+        )
+        .populate(
+          "userId",
+          "fullName email profileImage"
+        );
 
       if (!trip) {
-        return res.status(404).json({ message: "Trip not found" });
+        return res.status(404).json({
+          message: "Trip not found"
+        });
       }
 
       res.json(trip);
@@ -358,25 +908,43 @@ router.delete(
   "/trips/:id",
   protect,
   authorize("admin"),
+
   async (req, res) => {
     try {
+      const deletedTrip =
+        await Trip.findByIdAndDelete(
+          req.params.id
+        );
 
-      const trip = await Trip.findById(req.params.id);
-
-      if (!trip) {
-        return res.status(404).json({ message: "Trip not found" });
+      if (!deletedTrip) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
       }
 
-      await trip.deleteOne();
-
-      res.json({ message: "Trip deleted successfully" });
+      res.json({
+        message:
+          "Trip deleted successfully",
+      });
 
     } catch (err) {
-      console.error("ADMIN DELETE TRIP ERROR:", err);
-      res.status(500).json({ message: "Delete trip failed" });
+      console.error(
+        "ADMIN DELETE TRIP ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Delete trip failed",
+        });
     }
   }
 );
+
 
 // =====================================================
 // ================= UPDATE TRIP STATUS =================
@@ -385,29 +953,68 @@ router.put(
   "/trips/:id/status",
   protect,
   authorize("admin"),
+
   async (req, res) => {
     try {
+      const {
+        isPublic,
+      } = req.body;
 
-      const { isPublic } = req.body;
-
-      const trip = await Trip.findByIdAndUpdate(
-        req.params.id,
-        { isPublic },
-        { new: true }
-      ).populate("userId", "fullName profileImage");
+      const trip =
+        await Trip.findByIdAndUpdate(
+          req.params.id,
+          {
+            isPublic:
+              isPublic ===
+                true ||
+              isPublic ===
+                "true",
+          },
+          {
+            new: true,
+          }
+        )
+          .populate(
+            "tripPlaces.placeId",
+            "placeName provinceId placeImages"
+          )
+          .populate(
+            "tripFestivals.festivalId",
+            "festivalName startDate endDate"
+          )
+          .populate(
+            "userId",
+            "fullName profileImage email"
+          );
 
       if (!trip) {
-        return res.status(404).json({ message: "Trip not found" });
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
       }
 
-      res.json(trip);
+      res.json(
+        trip
+      );
 
     } catch (err) {
-      console.error("UPDATE TRIP STATUS ERROR:", err);
-      res.status(500).json({ message: "Update status failed" });
+      console.error(
+        "UPDATE TRIP STATUS ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Update status failed",
+        });
     }
   }
 );
+
 
 // =====================================================
 // ================= GET ALL USERS =====================
@@ -416,26 +1023,180 @@ router.get(
   "/users",
   protect,
   authorize("admin"),
+
   async (req, res) => {
     try {
+      const users =
+        await User.find()
+          .select(
+            "-password"
+          )
+          .sort({
+            createdAt:
+              -1,
+          })
+          .lean();
 
-      const users = await User.find()
-        .select("-password")
-        .sort({ createdAt: -1 })
-        .lean();
+      const formatted =
+        users.map(
+          (u) => ({
+            _id:
+              u._id,
 
-      const formatted = users.map((u) => ({
-        _id: u._id,
-        name: u.fullName,
-        email: u.email,
-        userType: u.userType,
-      }));
+            fullName:
+              u.fullName,
 
-      res.json(formatted);
+            email:
+              u.email,
+
+            profileImage:
+              u.profileImage,
+
+            userType:
+              u.userType,
+
+            createdAt:
+              u.createdAt,
+          })
+        );
+
+      res.json(
+        formatted
+      );
 
     } catch (err) {
-      console.error("GET USERS ERROR:", err);
-      res.status(500).json({ message: "Server error" });
+      console.error(
+        "GET USERS ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
+    }
+  }
+);
+
+
+// =====================================================
+// ================= UPDATE USER =======================
+// =====================================================
+router.put(
+  "/users/:id",
+  protect,
+  authorize("admin"),
+
+  async (req, res) => {
+    try {
+      const {
+        fullName,
+        email,
+        password,
+        userType,
+      } = req.body;
+
+      const user =
+        await User.findById(
+          req.params.id
+        );
+
+      if (!user) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "User not found",
+          });
+      }
+
+      // ================= EMAIL DUPLICATE CHECK =================
+      if (
+        email &&
+        email !==
+          user.email
+      ) {
+        const exists =
+          await User.findOne(
+            {
+              email,
+            }
+          );
+
+        if (
+          exists
+        ) {
+          return res
+            .status(400)
+            .json({
+              message:
+                "Email already exists",
+            });
+        }
+
+        user.email =
+          email;
+      }
+
+      // ================= UPDATE FIELDS =================
+      if (
+        fullName
+      ) {
+        user.fullName =
+          fullName;
+      }
+
+      if (
+        userType
+      ) {
+        user.userType =
+          userType;
+      }
+
+      // ================= UPDATE PASSWORD =================
+      if (
+        password
+      ) {
+        const bcrypt =
+          require(
+            "bcryptjs"
+          );
+
+        const hashed =
+          await bcrypt.hash(
+            password,
+            10
+          );
+
+        user.password =
+          hashed;
+      }
+
+      await user.save();
+
+      const result =
+        await User.findById(
+          user._id
+        ).select(
+          "-password"
+        );
+
+      res.json(
+        result
+      );
+
+    } catch (err) {
+      console.error(
+        "UPDATE USER ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -448,45 +1209,41 @@ router.delete(
   "/users/:id",
   protect,
   authorize("admin"),
-  async (req, res) => {
-    try {
-      const user = await User.findById(req.params.id);
-      if (!user) {
-        return res.status(404).json({ message: "ไม่พบผู้ใช้" });
-      }
-      await user.deleteOne();
-      res.json({ message: "ลบผู้ใช้สำเร็จ" });
-    } catch (err) {
-      console.error("DELETE USER ERROR:", err);
-      res.status(500).json({ message: "Server error" });
-    }
-  }
-);
 
-// ================= UPDATE USER =================
-router.put(
-  "/users/:id",
-  protect,
-  authorize("admin"),
   async (req, res) => {
     try {
-      const { fullName, email, password } = req.body;
-      const user = await User.findById(req.params.id);
+      const user =
+        await User.findById(
+          req.params.id
+        );
+
       if (!user) {
-        return res.status(404).json({ message: "User not found" });
+        return res
+          .status(404)
+          .json({
+            message:
+              "User not found",
+          });
       }
-      if (fullName) user.fullName = fullName;
-      if (email) user.email = email;
-      if (password) {
-        const bcrypt = require("bcryptjs");
-        const hashed = await bcrypt.hash(password, 10);
-        user.password = hashed;
-      }
-      await user.save();
-      res.json({ message: "User updated" });
+
+      await user.deleteOne();
+
+      res.json({
+        message:
+          "User deleted successfully",
+      });
+
     } catch (err) {
-      console.error("UPDATE USER ERROR:", err);
-      res.status(500).json({ message: "Server error" });
+      console.error(
+        "DELETE USER ERROR:",
+        err
+      );
+
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
