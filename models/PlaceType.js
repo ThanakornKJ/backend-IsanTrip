@@ -6,18 +6,19 @@ const mongoose =
 const placeTypeSchema =
   new mongoose.Schema(
     {
-      name:
-        {
-          type:
-            String,
-          required:
-            true,
-          unique:
-            true,
-          trim: true,
-          minlength: 2,
-          maxlength: 100,
-        },
+      name: {
+        type:
+          String,
+        required:
+          true,
+        unique:
+          true,
+        trim: true,
+        minlength:
+          2,
+        maxlength:
+          100,
+      },
     },
     {
       timestamps:
@@ -26,13 +27,6 @@ const placeTypeSchema =
         false,
     }
   );
-
-// placeTypeSchema.index(
-//   {
-//     placeTypeName:
-//       1,
-//   }
-// );
 
 module.exports =
   mongoose.model(

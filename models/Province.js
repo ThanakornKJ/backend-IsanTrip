@@ -6,18 +6,19 @@ const mongoose =
 const provinceSchema =
   new mongoose.Schema(
     {
-      name:
-        {
-          type:
-            String,
-          required:
-            true,
-          unique:
-            true,
-          trim: true,
-          minlength: 2,
-          maxlength: 100,
-        },
+      name: {
+        type:
+          String,
+        required:
+          true,
+        unique:
+          true,
+        trim: true,
+        minlength:
+          2,
+        maxlength:
+          100,
+      },
     },
     {
       timestamps:
@@ -26,13 +27,6 @@ const provinceSchema =
         false,
     }
   );
-
-// provinceSchema.index(
-//   {
-//     provinceName:
-//       1,
-//   }
-// );
 
 module.exports =
   mongoose.model(
