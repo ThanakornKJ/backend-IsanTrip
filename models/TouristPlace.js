@@ -136,6 +136,16 @@ touristPlaceSchema.index({
   location: "2dsphere",
 });
 
+// ================= UNIQUE PLACE =================
+touristPlaceSchema.index(
+  {
+    placeName: 1,
+  },
+  {
+    unique: true,
+  }
+);
+
 // ================= AUTO SET LOCATION =================
 touristPlaceSchema.pre("save", function (next) {
   if (
