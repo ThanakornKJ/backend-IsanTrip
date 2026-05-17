@@ -6,7 +6,7 @@ const mongoose =
 const categorySchema =
   new mongoose.Schema(
     {
-      categoryName:
+      name:
         {
           type:
             String,

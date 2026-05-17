@@ -6,7 +6,7 @@ const mongoose =
 const placeTypeSchema =
   new mongoose.Schema(
     {
-      placeTypeName:
+      name:
         {
           type:
             String,

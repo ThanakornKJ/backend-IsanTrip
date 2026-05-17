@@ -6,7 +6,7 @@ const mongoose =
 const provinceSchema =
   new mongoose.Schema(
     {
-      provinceName:
+      name:
         {
           type:
             String,
