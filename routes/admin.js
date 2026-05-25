@@ -149,7 +149,7 @@ router.post(
   protect,
   authorize("admin"),
   uploadPlaces.array(
-    "images",
+    "placeImages",
     10
   ),
 
@@ -408,7 +408,7 @@ router.put(
   protect,
   authorize("admin"),
   uploadPlaces.array(
-    "images",
+    "placeImages",
     10
   ),
 

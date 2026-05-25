@@ -229,7 +229,7 @@ router.post(
             index
           ) => ({
             imageURL:
-              `uploads/trips/${file.filename}`,
+              `/uploads/trips/${file.filename}`,
 
             isCover:
               index === 0,
@@ -656,7 +656,7 @@ router.put(
               index
             ) => ({
               imageURL:
-                `uploads/trips/${file.filename}`,
+                `/uploads/trips/${file.filename}`,
 
               isCover:
                 index ===

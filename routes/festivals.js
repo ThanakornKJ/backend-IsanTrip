@@ -189,7 +189,7 @@ router.post(
   ),
 
   uploadFestivals.array(
-    "images",
+    "festivalImages",
     10
   ),
 
@@ -286,8 +286,7 @@ router.post(
             file,
             index
           ) => ({
-            imageURL:
-              `uploads/festivals/${file.filename}`,
+            imageURL:`/uploads/festivals/${file.filename}`,
 
             isCover:
               index === 0,
@@ -361,7 +360,7 @@ router.put(
   ),
 
   uploadFestivals.array(
-    "images",
+    "festivalImages",
     10
   ),
 
@@ -508,8 +507,7 @@ router.put(
               file,
               index
             ) => ({
-              imageURL:
-                `uploads/festivals/${file.filename}`,
+              imageURL:`/uploads/festivals/${file.filename}`,
 
               isCover:
                 index ===
