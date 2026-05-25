@@ -16,129 +16,103 @@ const PlaceType = require("../models/PlaceType");
 const protect = require("../middleware/authMiddleware");
 const authorize = require("../middleware/roleMiddleware");
 
-const {
-  uploadPlaces,
-  uploadTrips,
-} = require("../middleware/upload");
+const { uploadPlaces, uploadTrips } = require("../middleware/upload");
+const { PLACE_POPULATE, TRIP_POPULATE } = require("../utils/populateConfig");
 
 // =====================================================
-// ================= POPULATE CONFIG ===================
+// ================= HELPERS ===========================
 // =====================================================
 
-const PLACE_POPULATE = [
-  {
-    path: "provinceId",
-    select: "name",
-  },
-  {
-    path: "categoryId",
-    select: "name",
-  },
-  {
-    path: "typeId",
-    select: "name",
-  },
-];
+const resolveRelationIds = async ({ province, category, touristType }) => {
+  const [provinceDoc, categoryDoc, typeDoc] = await Promise.all([
+    province ? Province.findOne({ name: province }) : null,
+    category ? Category.findOne({ name: category }) : null,
+    touristType ? PlaceType.findOne({ name: touristType }) : null,
+  ]);
 
-const TRIP_POPULATE = [
-  {
-    path: "userId",
-    select:
-      "fullName email profileImage userType",
-  },
-
-  {
-    path:
-      "tripPlaces.placeId",
-
-    populate: [
-      {
-        path:
-          "provinceId",
-        select:
-          "name",
-      },
-      {
-        path:
-          "categoryId",
-        select:
-          "name",
-      },
-      {
-        path:
-          "typeId",
-        select:
-          "name",
-      },
-    ],
-  },
-
-  {
-    path:
-      "tripFestivals.festivalId",
-
-    populate: {
-      path:
-        "provinceId",
-      select:
-        "name",
-    },
-  },
-];
-
-// =====================================================
-// ================= HELPER ============================
-// =====================================================
-
-const resolveRelationIds =
-  async ({
-    province,
-    category,
-    touristType,
-  }) => {
-
-    const [
-      provinceDoc,
-      categoryDoc,
-      typeDoc,
-    ] =
-      await Promise.all([
-        province
-          ? Province.findOne({
-              name:
-                province,
-            })
-          : null,
-
-        category
-          ? Category.findOne({
-              name:
-                category,
-            })
-          : null,
-
-        touristType
-          ? PlaceType.findOne({
-              name:
-                touristType,
-            })
-          : null,
-      ]);
-
-    return {
-      provinceId:
-        provinceDoc?._id ||
-        null,
-
-      categoryId:
-        categoryDoc?._id ||
-        null,
-
-      typeId:
-        typeDoc?._id ||
-        null,
-    };
+  return {
+    provinceId: provinceDoc?._id || null,
+    categoryId: categoryDoc?._id || null,
+    typeId: typeDoc?._id || null,
   };
+};
+
+const parseJsonField = (field) => {
+  if (!field) {
+    return [];
+  }
+
+  if (typeof field === "string") {
+    return JSON.parse(field);
+  }
+
+  return field;
+};
+
+const parseNumber = (value, fallback = 0) => {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const buildPlaceImages = (files = []) => {
+  return files.map((file, index) => ({
+    imageURL: `/uploads/places/${file.filename}`,
+    isCover: index === 0,
+  }));
+};
+
+const buildTripImages = (files = []) => {
+  return files.map((file, index) => ({
+    imageURL: `/uploads/trips/${file.filename}`,
+    isCover: index === 0,
+  }));
+};
+
+const buildTripPlaces = (tripPlaces) => {
+  const placesData = parseJsonField(tripPlaces);
+
+  if (!Array.isArray(placesData)) {
+    return [];
+  }
+
+  return placesData
+    .map((item, index) => ({
+      placeId: item.placeId,
+      sequenceNo: Number(item.sequenceNo) || index + 1,
+      visitDate: item.visitDate || null,
+    }))
+    .sort((a, b) => a.sequenceNo - b.sequenceNo);
+};
+
+const buildTripFestivals = (tripFestivals) => {
+  const festivalsData = parseJsonField(tripFestivals);
+
+  if (!Array.isArray(festivalsData)) {
+    return [];
+  }
+
+  return festivalsData.map((item) => ({
+    festivalId: item.festivalId,
+    attendDate: item.attendDate || null,
+  }));
+};
+
+const formatUser = (user) => {
+  return {
+    _id: user._id,
+    fullName: user.fullName,
+    email: user.email,
+    facebookId: user.facebookId,
+    profileImage: user.profileImage,
+    userType: user.userType,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+};
 
 // =====================================================
 // ================= CREATE PLACE ======================
@@ -148,14 +122,9 @@ router.post(
   "/places",
   protect,
   authorize("admin"),
-  uploadPlaces.array(
-    "placeImages",
-    10
-  ),
-
+  uploadPlaces.array("placeImages", 10),
   async (req, res) => {
     try {
-
       const {
         placeName,
         description,
@@ -174,133 +143,59 @@ router.post(
       } = req.body;
 
       if (!placeName) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "placeName is required",
-          });
+        return res.status(400).json({
+          message: "placeName is required",
+        });
       }
 
-      const {
+      const { provinceId, categoryId, typeId } = await resolveRelationIds({
+        province,
+        category,
+        touristType,
+      });
+
+      const parsedLatitude = parseNumber(latitude);
+      const parsedLongitude = parseNumber(longitude);
+
+      const newPlace = await TouristPlace.create({
+        placeName,
+        description,
+        address,
         provinceId,
         categoryId,
         typeId,
-      } =
-        await resolveRelationIds({
-          province,
-          category,
-          touristType,
-        });
+        latitude: parsedLatitude,
+        longitude: parsedLongitude,
+        location: {
+          type: "Point",
+          coordinates: [parsedLongitude, parsedLatitude],
+        },
+        openingHours,
+        contact,
+        entranceFee,
+        socialMedia,
+        highlight,
+        travelInfo,
+        placeImages: buildPlaceImages(req.files || []),
+      });
 
-      const parsedLatitude =
-        latitude !==
-          undefined
-          ? Number(
-              latitude
-            )
-          : 0;
+      const populated = await TouristPlace.findById(newPlace._id)
+        .populate(PLACE_POPULATE)
+        .lean();
 
-      const parsedLongitude =
-        longitude !==
-          undefined
-          ? Number(
-              longitude
-            )
-          : 0;
-
-      const placeImages =
-        req.files?.map(
-          (
-            file,
-            index
-          ) => ({
-            imageURL:
-              `/uploads/places/${file.filename}`,
-
-            isCover:
-              index ===
-              0,
-          })
-        ) || [];
-
-      const newPlace =
-        await TouristPlace.create(
-          {
-            placeName,
-            description,
-            address,
-
-            provinceId,
-            categoryId,
-            typeId,
-
-            latitude:
-              parsedLatitude,
-
-            longitude:
-              parsedLongitude,
-
-            location: {
-              type:
-                "Point",
-
-              coordinates:
-                [
-                  parsedLongitude,
-                  parsedLatitude,
-                ],
-            },
-
-            openingHours,
-            contact,
-            entranceFee,
-            socialMedia,
-            highlight,
-            travelInfo,
-
-            placeImages,
-          }
-        );
-
-      const populated =
-        await TouristPlace.findById(
-          newPlace._id
-        ).populate(
-          PLACE_POPULATE
-        );
-
-      res
-        .status(201)
-        .json(
-          populated
-        );
-
+      res.status(201).json(populated);
     } catch (err) {
+      console.error("CREATE PLACE ERROR:", err);
 
-      console.error(
-        "CREATE PLACE ERROR:",
-        err
-      );
-
-      if (
-        err.code ===
-        11000
-      ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Place already exists",
-          });
+      if (err.code === 11000) {
+        return res.status(400).json({
+          message: "Place already exists",
+        });
       }
 
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
+      res.status(500).json({
+        message: "Server error",
+      });
     }
   }
 );
@@ -309,95 +204,48 @@ router.post(
 // ================= GET ALL PLACES ====================
 // =====================================================
 
-router.get(
-  "/places",
-  protect,
-  authorize("admin"),
+router.get("/places", protect, authorize("admin"), async (req, res) => {
+  try {
+    const places = await TouristPlace.find()
+      .populate(PLACE_POPULATE)
+      .sort({ createdAt: -1 })
+      .lean();
 
-  async (req, res) => {
-    try {
+    res.json(places);
+  } catch (err) {
+    console.error("GET PLACES ERROR:", err);
 
-      const places =
-        await TouristPlace.find()
-          .populate(
-            PLACE_POPULATE
-          )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .lean();
-
-      res.json(
-        places
-      );
-
-    } catch (err) {
-
-      console.error(
-        "GET PLACES ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
-    }
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= GET PLACE BY ID ===================
 // =====================================================
 
-router.get(
-  "/places/:id",
-  protect,
-  authorize("admin"),
+router.get("/places/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    const place = await TouristPlace.findById(req.params.id)
+      .populate(PLACE_POPULATE)
+      .lean();
 
-  async (req, res) => {
-    try {
-
-      const place =
-        await TouristPlace.findById(
-          req.params.id
-        )
-          .populate(
-            PLACE_POPULATE
-          );
-
-      if (!place) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Place not found",
-          });
-      }
-
-      res.json(
-        place
-      );
-
-    } catch (err) {
-
-      console.error(
-        "GET PLACE ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
+    if (!place) {
+      return res.status(404).json({
+        message: "Place not found",
+      });
     }
+
+    res.json(place);
+  } catch (err) {
+    console.error("GET PLACE ERROR:", err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= UPDATE PLACE ======================
@@ -407,26 +255,15 @@ router.put(
   "/places/:id",
   protect,
   authorize("admin"),
-  uploadPlaces.array(
-    "placeImages",
-    10
-  ),
-
+  uploadPlaces.array("placeImages", 10),
   async (req, res) => {
     try {
-
-      const place =
-        await TouristPlace.findById(
-          req.params.id
-        );
+      const place = await TouristPlace.findById(req.params.id);
 
       if (!place) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Place not found",
-          });
+        return res.status(404).json({
+          message: "Place not found",
+        });
       }
 
       const {
@@ -446,220 +283,68 @@ router.put(
         travelInfo,
       } = req.body;
 
-      const {
-        provinceId,
-        categoryId,
-        typeId,
-      } =
-        await resolveRelationIds({
+      if (placeName !== undefined) place.placeName = placeName;
+      if (description !== undefined) place.description = description;
+      if (address !== undefined) place.address = address;
+      if (openingHours !== undefined) place.openingHours = openingHours;
+      if (contact !== undefined) place.contact = contact;
+      if (entranceFee !== undefined) place.entranceFee = entranceFee;
+      if (socialMedia !== undefined) place.socialMedia = socialMedia;
+      if (highlight !== undefined) place.highlight = highlight;
+      if (travelInfo !== undefined) place.travelInfo = travelInfo;
+
+      if (
+        province !== undefined ||
+        category !== undefined ||
+        touristType !== undefined
+      ) {
+        const relationIds = await resolveRelationIds({
           province,
           category,
           touristType,
         });
 
-      const updateData =
-        {};
-
-      // ================= BASIC =================
-
-      if (
-        placeName !==
-        undefined
-      ) {
-        updateData.placeName =
-          placeName;
+        if (province !== undefined) place.provinceId = relationIds.provinceId;
+        if (category !== undefined) place.categoryId = relationIds.categoryId;
+        if (touristType !== undefined) place.typeId = relationIds.typeId;
       }
 
-      if (
-        description !==
-        undefined
-      ) {
-        updateData.description =
-          description;
+      if (latitude !== undefined) {
+        place.latitude = parseNumber(latitude, place.latitude);
       }
 
-      if (
-        address !==
-        undefined
-      ) {
-        updateData.address =
-          address;
+      if (longitude !== undefined) {
+        place.longitude = parseNumber(longitude, place.longitude);
       }
 
-      if (
-        openingHours !==
-        undefined
-      ) {
-        updateData.openingHours =
-          openingHours;
+      place.location = {
+        type: "Point",
+        coordinates: [place.longitude || 0, place.latitude || 0],
+      };
+
+      if (req.files?.length > 0) {
+        place.placeImages = buildPlaceImages(req.files);
       }
 
-      if (
-        contact !==
-        undefined
-      ) {
-        updateData.contact =
-          contact;
-      }
+      await place.save();
 
-      if (
-        entranceFee !==
-        undefined
-      ) {
-        updateData.entranceFee =
-          entranceFee;
-      }
+      const updated = await TouristPlace.findById(place._id)
+        .populate(PLACE_POPULATE)
+        .lean();
 
-      if (
-        socialMedia !==
-        undefined
-      ) {
-        updateData.socialMedia =
-          socialMedia;
-      }
-
-      if (
-        highlight !==
-        undefined
-      ) {
-        updateData.highlight =
-          highlight;
-      }
-
-      if (
-        travelInfo !==
-        undefined
-      ) {
-        updateData.travelInfo =
-          travelInfo;
-      }
-
-      // ================= RELATION =================
-
-      if (
-        province !==
-        undefined
-      ) {
-        updateData.provinceId =
-          provinceId;
-      }
-
-      if (
-        category !==
-        undefined
-      ) {
-        updateData.categoryId =
-          categoryId;
-      }
-
-      if (
-        touristType !==
-        undefined
-      ) {
-        updateData.typeId =
-          typeId;
-      }
-
-      // ================= LOCATION =================
-
-      let parsedLatitude =
-        place.latitude;
-
-      let parsedLongitude =
-        place.longitude;
-
-      if (
-        latitude !==
-        undefined
-      ) {
-        parsedLatitude =
-          Number(
-            latitude
-          );
-
-        updateData.latitude =
-          parsedLatitude;
-      }
-
-      if (
-        longitude !==
-        undefined
-      ) {
-        parsedLongitude =
-          Number(
-            longitude
-          );
-
-        updateData.longitude =
-          parsedLongitude;
-      }
-
-      updateData.location =
-        {
-          type:
-            "Point",
-
-          coordinates:
-            [
-              parsedLongitude,
-              parsedLatitude,
-            ],
-        };
-
-      // ================= IMAGES =================
-
-      if (
-        req.files &&
-        req.files.length >
-          0
-      ) {
-
-        updateData.placeImages =
-          req.files.map(
-            (
-              file,
-              index
-            ) => ({
-              imageURL:
-                `/uploads/places/${file.filename}`,
-
-              isCover:
-                index ===
-                0,
-            })
-          );
-      }
-
-      const updated =
-        await TouristPlace.findByIdAndUpdate(
-          req.params.id,
-          updateData,
-          {
-            new: true,
-            runValidators:
-              true,
-          }
-        ).populate(
-          PLACE_POPULATE
-        );
-
-      res.json(
-        updated
-      );
-
+      res.json(updated);
     } catch (err) {
+      console.error("UPDATE PLACE ERROR:", err);
 
-      console.error(
-        "UPDATE PLACE ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
+      if (err.code === 11000) {
+        return res.status(400).json({
+          message: "Place already exists",
         });
+      }
+
+      res.status(500).json({
+        message: "Server error",
+      });
     }
   }
 );
@@ -668,101 +353,63 @@ router.put(
 // ================= DELETE PLACE ======================
 // =====================================================
 
-router.delete(
-  "/places/:id",
-  protect,
-  authorize("admin"),
+router.delete("/places/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    const deleted = await TouristPlace.findByIdAndDelete(req.params.id);
 
-  async (req, res) => {
-    try {
-
-      const deleted =
-        await TouristPlace.findByIdAndDelete(
-          req.params.id
-        );
-
-      if (!deleted) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Place not found",
-          });
-      }
-
-      res.json({
-        message:
-          "Place deleted successfully",
+    if (!deleted) {
+      return res.status(404).json({
+        message: "Place not found",
       });
-
-    } catch (err) {
-
-      console.error(
-        "DELETE PLACE ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
     }
+
+    res.json({
+      message: "Place deleted successfully",
+    });
+  } catch (err) {
+    console.error("DELETE PLACE ERROR:", err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= ADMIN STATS =======================
 // =====================================================
 
-router.get(
-  "/stats",
-  protect,
-  authorize("admin"),
+router.get("/stats", protect, authorize("admin"), async (req, res) => {
+  try {
+    const [
+      totalUsers,
+      totalPlaces,
+      totalTrips,
+      totalFestivals,
+      totalReviews,
+    ] = await Promise.all([
+      User.countDocuments(),
+      TouristPlace.countDocuments(),
+      Trip.countDocuments(),
+      Festival.countDocuments(),
+      Review.countDocuments(),
+    ]);
 
-  async (req, res) => {
-    try {
+    res.json({
+      totalUsers,
+      totalPlaces,
+      totalTrips,
+      totalFestivals,
+      totalReviews,
+    });
+  } catch (err) {
+    console.error("STATS ERROR:", err);
 
-      const [
-        totalUsers,
-        totalPlaces,
-        totalTrips,
-        totalFestivals,
-        totalReviews,
-      ] =
-        await Promise.all([
-          User.countDocuments(),
-          TouristPlace.countDocuments(),
-          Trip.countDocuments(),
-          Festival.countDocuments(),
-          Review.countDocuments(),
-        ]);
-
-      res.json({
-        totalUsers,
-        totalPlaces,
-        totalTrips,
-        totalFestivals,
-        totalReviews,
-      });
-
-    } catch (err) {
-
-      console.error(
-        "STATS ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
-    }
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= UPDATE TRIP =======================
@@ -772,13 +419,16 @@ router.put(
   "/trips/:id",
   protect,
   authorize("admin"),
-  uploadTrips.array(
-    "tripImages",
-    10
-  ),
-
+  uploadTrips.array("tripImages", 10),
   async (req, res) => {
     try {
+      const trip = await Trip.findById(req.params.id);
+
+      if (!trip) {
+        return res.status(404).json({
+          message: "Trip not found",
+        });
+      }
 
       const {
         tripName,
@@ -791,196 +441,41 @@ router.put(
         isPublic,
       } = req.body;
 
-      const updateData =
-        {};
+      if (tripName !== undefined) trip.tripName = tripName;
+      if (startDate !== undefined) trip.startDate = startDate;
+      if (endDate !== undefined) trip.endDate = endDate;
+      if (description !== undefined) trip.description = description;
+      if (startLocation !== undefined) trip.startLocation = startLocation;
 
-      // ================= BASIC =================
-
-      if (
-        tripName !==
-        undefined
-      ) {
-        updateData.tripName =
-          tripName;
+      if (typeof isPublic !== "undefined") {
+        trip.isPublic = isPublic === true || isPublic === "true";
       }
 
-      if (
-        startDate !==
-        undefined
-      ) {
-        updateData.startDate =
-          startDate;
+      if (tripPlaces !== undefined) {
+        trip.tripPlaces = buildTripPlaces(tripPlaces);
       }
 
-      if (
-        endDate !==
-        undefined
-      ) {
-        updateData.endDate =
-          endDate;
+      if (tripFestivals !== undefined) {
+        trip.tripFestivals = buildTripFestivals(tripFestivals);
       }
 
-      if (
-        description !==
-        undefined
-      ) {
-        updateData.description =
-          description;
+      if (req.files?.length > 0) {
+        trip.tripImages = buildTripImages(req.files);
       }
 
-      if (
-        startLocation !==
-        undefined
-      ) {
-        updateData.startLocation =
-          startLocation;
-      }
+      await trip.save();
 
-      if (
-        typeof isPublic !==
-        "undefined"
-      ) {
-        updateData.isPublic =
-          isPublic ===
-            true ||
-          isPublic ===
-            "true";
-      }
+      const updatedTrip = await Trip.findById(trip._id)
+        .populate(TRIP_POPULATE)
+        .lean();
 
-      // ================= TRIP PLACES =================
-
-      if (
-        tripPlaces !==
-        undefined
-      ) {
-
-        const parsed =
-          typeof tripPlaces ===
-          "string"
-            ? JSON.parse(
-                tripPlaces
-              )
-            : tripPlaces;
-
-        updateData.tripPlaces =
-          parsed
-            .map(
-              (p) => ({
-                placeId:
-                  p.placeId,
-
-                sequenceNo:
-                  Number(
-                    p.sequenceNo
-                  ),
-
-                visitDate:
-                  p.visitDate ||
-                  null,
-              })
-            )
-            .sort(
-              (
-                a,
-                b
-              ) =>
-                a.sequenceNo -
-                b.sequenceNo
-            );
-      }
-
-      // ================= TRIP FESTIVALS =================
-
-      if (
-        tripFestivals !==
-        undefined
-      ) {
-
-        const parsed =
-          typeof tripFestivals ===
-          "string"
-            ? JSON.parse(
-                tripFestivals
-              )
-            : tripFestivals;
-
-        updateData.tripFestivals =
-          parsed.map(
-            (f) => ({
-              festivalId:
-                f.festivalId,
-
-              attendDate:
-                f.attendDate ||
-                null,
-            })
-          );
-      }
-
-      // ================= IMAGES =================
-
-      if (
-        req.files?.length >
-        0
-      ) {
-
-        updateData.tripImages =
-          req.files.map(
-            (
-              file,
-              index
-            ) => ({
-              imageURL:
-                `/uploads/trips/${file.filename}`,
-
-              isCover:
-                index ===
-                0,
-            })
-          );
-      }
-
-      const updatedTrip =
-        await Trip.findByIdAndUpdate(
-          req.params.id,
-          updateData,
-          {
-            new: true,
-            runValidators:
-              true,
-          }
-        ).populate(
-          TRIP_POPULATE
-        );
-
-      if (
-        !updatedTrip
-      ) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Trip not found",
-          });
-      }
-
-      res.json(
-        updatedTrip
-      );
-
+      res.json(updatedTrip);
     } catch (err) {
+      console.error("UPDATE TRIP ERROR:", err);
 
-      console.error(
-        "UPDATE TRIP ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Update trip failed",
-        });
+      res.status(500).json({
+        message: "Update trip failed",
+      });
     }
   }
 );
@@ -989,204 +484,113 @@ router.put(
 // ================= GET ALL TRIPS =====================
 // =====================================================
 
-router.get(
-  "/trips",
-  protect,
-  authorize("admin"),
+router.get("/trips", protect, authorize("admin"), async (req, res) => {
+  try {
+    const trips = await Trip.find()
+      .populate(TRIP_POPULATE)
+      .sort({ createdAt: -1 })
+      .lean();
 
-  async (req, res) => {
-    try {
+    res.json(trips);
+  } catch (err) {
+    console.error("GET TRIPS ERROR:", err);
 
-      const trips =
-        await Trip.find()
-          .populate(
-            TRIP_POPULATE
-          )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .lean();
-
-      res.json(
-        trips
-      );
-
-    } catch (err) {
-
-      console.error(
-        "GET TRIPS ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
-    }
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= GET TRIP BY ID ====================
 // =====================================================
 
-router.get(
-  "/trips/:id",
-  protect,
-  authorize("admin"),
+router.get("/trips/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id)
+      .populate(TRIP_POPULATE)
+      .lean();
 
-  async (req, res) => {
-    try {
-
-      const trip =
-        await Trip.findById(
-          req.params.id
-        ).populate(
-          TRIP_POPULATE
-        );
-
-      if (!trip) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Trip not found",
-          });
-      }
-
-      res.json(
-        trip
-      );
-
-    } catch (err) {
-
-      console.error(
-        "GET TRIP ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
+    if (!trip) {
+      return res.status(404).json({
+        message: "Trip not found",
+      });
     }
+
+    res.json(trip);
+  } catch (err) {
+    console.error("GET TRIP ERROR:", err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= DELETE TRIP =======================
 // =====================================================
 
-router.delete(
-  "/trips/:id",
-  protect,
-  authorize("admin"),
+router.delete("/trips/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    const deletedTrip = await Trip.findByIdAndDelete(req.params.id);
 
-  async (req, res) => {
-    try {
-
-      const deletedTrip =
-        await Trip.findByIdAndDelete(
-          req.params.id
-        );
-
-      if (
-        !deletedTrip
-      ) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Trip not found",
-          });
-      }
-
-      res.json({
-        message:
-          "Trip deleted successfully",
+    if (!deletedTrip) {
+      return res.status(404).json({
+        message: "Trip not found",
       });
-
-    } catch (err) {
-
-      console.error(
-        "DELETE TRIP ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Delete trip failed",
-        });
     }
+
+    res.json({
+      message: "Trip deleted successfully",
+    });
+  } catch (err) {
+    console.error("DELETE TRIP ERROR:", err);
+
+    res.status(500).json({
+      message: "Delete trip failed",
+    });
   }
-);
+});
 
 // =====================================================
-// ================= UPDATE TRIP STATUS =================
+// ================= UPDATE TRIP STATUS ================
 // =====================================================
 
 router.put(
   "/trips/:id/status",
   protect,
   authorize("admin"),
-
   async (req, res) => {
     try {
+      const { isPublic } = req.body;
 
-      const {
-        isPublic,
-      } = req.body;
-
-      const trip =
-        await Trip.findByIdAndUpdate(
-          req.params.id,
-          {
-            isPublic:
-              isPublic ===
-                true ||
-              isPublic ===
-                "true",
-          },
-          {
-            new: true,
-          }
-        ).populate(
-          TRIP_POPULATE
-        );
+      const trip = await Trip.findByIdAndUpdate(
+        req.params.id,
+        {
+          isPublic: isPublic === true || isPublic === "true",
+        },
+        {
+          new: true,
+          runValidators: true,
+        }
+      )
+        .populate(TRIP_POPULATE)
+        .lean();
 
       if (!trip) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Trip not found",
-          });
+        return res.status(404).json({
+          message: "Trip not found",
+        });
       }
 
-      res.json(
-        trip
-      );
-
+      res.json(trip);
     } catch (err) {
+      console.error("UPDATE TRIP STATUS ERROR:", err);
 
-      console.error(
-        "UPDATE TRIP STATUS ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Update status failed",
-        });
+      res.status(500).json({
+        message: "Update status failed",
+      });
     }
   }
 );
@@ -1195,258 +599,107 @@ router.put(
 // ================= GET ALL USERS =====================
 // =====================================================
 
-router.get(
-  "/users",
-  protect,
-  authorize("admin"),
+router.get("/users", protect, authorize("admin"), async (req, res) => {
+  try {
+    const users = await User.find()
+      .sort({ createdAt: -1 })
+      .lean();
 
-  async (req, res) => {
-    try {
+    res.json(users.map(formatUser));
+  } catch (err) {
+    console.error("GET USERS ERROR:", err);
 
-      const users =
-        await User.find()
-          .select(
-            "+password"
-          )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .lean();
-
-      const formatted =
-        users.map(
-          (u) => ({
-            _id:
-              u._id,
-
-            fullName:
-              u.fullName,
-
-            email:
-              u.email,
-
-            facebookId:
-              u.facebookId,
-
-            profileImage:
-              u.profileImage,
-
-            userType:
-              u.userType,
-
-            createdAt:
-              u.createdAt,
-
-            updatedAt:
-              u.updatedAt,
-          })
-        );
-
-      res.json(
-        formatted
-      );
-
-    } catch (err) {
-
-      console.error(
-        "GET USERS ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
-    }
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= UPDATE USER =======================
 // =====================================================
 
-router.put(
-  "/users/:id",
-  protect,
-  authorize("admin"),
+router.put("/users/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    const { fullName, email, password, userType, profileImage } = req.body;
 
-  async (req, res) => {
-    try {
+    const user = await User.findById(req.params.id).select("+password");
 
-      const {
-        fullName,
-        email,
-        password,
-        userType,
-        profileImage,
-      } = req.body;
-
-      const user =
-        await User.findById(
-          req.params.id
-        ).select(
-          "+password"
-        );
-
-      if (!user) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "User not found",
-          });
-      }
-
-      // ================= EMAIL =================
-
-      if (
-        email &&
-        email !==
-          user.email
-      ) {
-
-        const exists =
-          await User.findOne({
-            email,
-          });
-
-        if (
-          exists
-        ) {
-          return res
-            .status(400)
-            .json({
-              message:
-                "Email already exists",
-            });
-        }
-
-        user.email =
-          email;
-      }
-
-      // ================= BASIC =================
-
-      if (
-        fullName !==
-        undefined
-      ) {
-        user.fullName =
-          fullName;
-      }
-
-      if (
-        userType !==
-        undefined
-      ) {
-        user.userType =
-          userType;
-      }
-
-      if (
-        profileImage !==
-        undefined
-      ) {
-        user.profileImage =
-          profileImage;
-      }
-
-      // ================= PASSWORD =================
-
-      if (
-        password
-      ) {
-
-        const hashed =
-          await bcrypt.hash(
-            password,
-            10
-          );
-
-        user.password =
-          hashed;
-      }
-
-      await user.save();
-
-      const result =
-        await User.findById(
-          user._id
-        );
-
-      res.json(
-        result
-      );
-
-    } catch (err) {
-
-      console.error(
-        "UPDATE USER ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
     }
+
+    if (email && email !== user.email) {
+      const exists = await User.findOne({
+        email,
+        _id: {
+          $ne: user._id,
+        },
+      });
+
+      if (exists) {
+        return res.status(400).json({
+          message: "Email already exists",
+        });
+      }
+
+      user.email = email;
+    }
+
+    if (fullName !== undefined) user.fullName = fullName;
+    if (userType !== undefined) user.userType = userType;
+    if (profileImage !== undefined) user.profileImage = profileImage;
+
+    if (password) {
+      user.password = await bcrypt.hash(password, 10);
+    }
+
+    await user.save();
+
+    const result = await User.findById(user._id).lean();
+
+    res.json(formatUser(result));
+  } catch (err) {
+    console.error("UPDATE USER ERROR:", err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= DELETE USER =======================
 // =====================================================
 
-router.delete(
-  "/users/:id",
-  protect,
-  authorize("admin"),
-
-  async (req, res) => {
-    try {
-
-      const user =
-        await User.findById(
-          req.params.id
-        );
-
-      if (!user) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "User not found",
-          });
-      }
-
-      await user.deleteOne();
-
-      res.json({
-        message:
-          "User deleted successfully",
+router.delete("/users/:id", protect, authorize("admin"), async (req, res) => {
+  try {
+    if (req.user._id.toString() === req.params.id) {
+      return res.status(400).json({
+        message: "Cannot delete yourself",
       });
-
-    } catch (err) {
-
-      console.error(
-        "DELETE USER ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Server error",
-        });
     }
-  }
-);
 
-module.exports =
-  router;
+    const user = await User.findByIdAndDelete(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    res.json({
+      message: "User deleted successfully",
+    });
+  } catch (err) {
+    console.error("DELETE USER ERROR:", err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
+  }
+});
+
+module.exports = router;

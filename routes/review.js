@@ -12,15 +12,13 @@ const TouristPlace = require("../models/TouristPlace");
 const Festival = require("../models/Festival");
 
 const protect = require("../middleware/authMiddleware");
+const { REVIEW_POPULATE } = require("../utils/populateConfig");
 
 // =====================================================
 // ================= UPLOAD CONFIG =====================
 // =====================================================
 
-const uploadDir = path.join(
-  __dirname,
-  "../uploads/reviews"
-);
+const uploadDir = path.join(__dirname, "../uploads/reviews");
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, {
@@ -34,20 +32,15 @@ const storage = multer.diskStorage({
   },
 
   filename: (req, file, cb) => {
-    const uniqueName =
-      `${Date.now()}-${Math.round(
-        Math.random() * 1e9
-      )}${path.extname(file.originalname)}`;
+    const uniqueName = `${Date.now()}-${Math.round(
+      Math.random() * 1e9
+    )}${path.extname(file.originalname)}`;
 
     cb(null, uniqueName);
   },
 });
 
-const fileFilter = (
-  req,
-  file,
-  cb
-) => {
+const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = [
     "image/jpeg",
     "image/jpg",
@@ -55,124 +48,84 @@ const fileFilter = (
     "image/webp",
   ];
 
-  if (
-    allowedMimeTypes.includes(
-      file.mimetype
-    )
-  ) {
+  if (allowedMimeTypes.includes(file.mimetype)) {
     return cb(null, true);
   }
 
-  cb(
-    new Error(
-      "Only jpg, jpeg, png, webp are allowed"
-    )
-  );
+  cb(new Error("Only jpg, jpeg, png, webp are allowed"));
 };
 
 const uploadReviews = multer({
   storage,
-
   limits: {
-    fileSize:
-      5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024,
   },
-
   fileFilter,
 });
 
 // =====================================================
-// ================= VALIDATE TARGET ===================
+// ================= HELPERS ===========================
 // =====================================================
 
-const validateTarget = async (
-  targetId,
-  targetType
-) => {
-  if (
-    !mongoose.Types.ObjectId.isValid(
-      targetId
-    )
-  ) {
+const validateTarget = async (targetId, targetType) => {
+  if (!mongoose.Types.ObjectId.isValid(targetId)) {
     return false;
   }
 
-  if (
-    targetType ===
-    "TouristPlace"
-  ) {
-    const exists =
-      await TouristPlace.exists({
-        _id: targetId,
-      });
-
-    return !!exists;
+  if (targetType === "TouristPlace") {
+    return !!(await TouristPlace.exists({ _id: targetId }));
   }
 
-  if (
-    targetType ===
-    "Festival"
-  ) {
-    const exists =
-      await Festival.exists({
-        _id: targetId,
-      });
-
-    return !!exists;
+  if (targetType === "Festival") {
+    return !!(await Festival.exists({ _id: targetId }));
   }
 
   return false;
 };
 
-// =====================================================
-// ================= FORMAT REVIEW =====================
-// =====================================================
+const getReviewImages = async (reviewId) => {
+  const images = await ReviewImage.find({ reviewId }).lean();
 
-const formatReview = (
-  review,
-  images = []
-) => {
+  return images.map((img) => img.imageURL);
+};
+
+const getReviewImagesMap = async (reviewIds) => {
+  const images = await ReviewImage.find({
+    reviewId: {
+      $in: reviewIds,
+    },
+  }).lean();
+
+  return images.reduce((acc, image) => {
+    const key = image.reviewId.toString();
+
+    if (!acc[key]) {
+      acc[key] = [];
+    }
+
+    acc[key].push(image.imageURL);
+
+    return acc;
+  }, {});
+};
+
+const formatReview = (review, images = []) => {
   return {
     _id: review._id,
 
-    user: review.userId
-      ? {
-          _id:
-            review.userId._id,
+    // keep backend field name matched with Flutter ReviewModel
+    userId: review.userId || null,
 
-          fullName:
-            review.userId
-              .fullName,
+    // optional alias for older UI code
+    user: review.userId || null,
 
-          email:
-            review.userId
-              .email,
-
-          profileImage:
-            review.userId
-              .profileImage,
-        }
-      : null,
-
-    targetId:
-      review.targetId,
-
-    targetType:
-      review.targetType,
-
-    rating:
-      review.rating,
-
-    comment:
-      review.comment,
-
+    targetId: review.targetId,
+    targetType: review.targetType,
+    rating: review.rating,
+    comment: review.comment,
     images,
-
-    createdAt:
-      review.createdAt,
-
-    updatedAt:
-      review.updatedAt,
+    createdAt: review.createdAt,
+    updatedAt: review.updatedAt,
   };
 };
 
@@ -180,662 +133,245 @@ const formatReview = (
 // ================= CREATE REVIEW =====================
 // =====================================================
 
-router.post(
-  "/",
-  protect,
-  uploadReviews.array(
-    "images",
-    5
-  ),
+router.post("/", protect, uploadReviews.array("images", 5), async (req, res) => {
+  try {
+    const { targetId, targetType, rating, comment } = req.body;
 
-  async (req, res) => {
-    try {
-      const {
-        targetId,
-        targetType,
-        rating,
-        comment,
-      } = req.body;
-
-      // ==========================================
-      // VALIDATE TARGET TYPE
-      // ==========================================
-
-      if (
-        ![
-          "TouristPlace",
-          "Festival",
-        ].includes(
-          targetType
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Invalid targetType",
-          });
-      }
-
-      // ==========================================
-      // VALIDATE TARGET
-      // ==========================================
-
-      const targetExists =
-        await validateTarget(
-          targetId,
-          targetType
-        );
-
-      if (
-        !targetExists
-      ) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Target not found",
-          });
-      }
-
-      // ==========================================
-      // VALIDATE RATING
-      // ==========================================
-
-      const parsedRating =
-        Number(rating);
-
-      if (
-        Number.isNaN(
-          parsedRating
-        ) ||
-        parsedRating < 1 ||
-        parsedRating > 5
-      ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Rating must be between 1-5",
-          });
-      }
-
-      // ==========================================
-      // CREATE REVIEW
-      // ==========================================
-
-      const review =
-        await Review.create({
-          userId:
-            req.user._id,
-
-          targetId,
-
-          targetType,
-
-          rating:
-            parsedRating,
-
-          comment:
-            comment || "",
-        });
-
-      // ==========================================
-      // SAVE IMAGES
-      // ==========================================
-
-      let imageUrls =
-        [];
-
-      if (
-        req.files?.length >
-        0
-      ) {
-        const images =
-          req.files.map(
-            (
-              file
-            ) => ({
-              reviewId:
-                review._id,
-
-              imageURL:
-                `/uploads/reviews/${file.filename}`,
-            })
-          );
-
-        await ReviewImage.insertMany(
-          images
-        );
-
-        imageUrls =
-          images.map(
-            (
-              img
-            ) =>
-              img.imageURL
-          );
-      }
-
-      // ==========================================
-      // RESPONSE
-      // ==========================================
-
-      const populatedReview =
-        await Review.findById(
-          review._id
-        )
-          .populate(
-            "userId",
-            "fullName profileImage email"
-          )
-          .lean();
-
-      res
-        .status(201)
-        .json({
-          message:
-            "Review created successfully",
-
-          review:
-            formatReview(
-              populatedReview,
-              imageUrls
-            ),
-        });
-    } catch (err) {
-      // ==========================================
-      // DUPLICATE REVIEW
-      // ==========================================
-
-      if (
-        err.code ===
-        11000
-      ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "You already reviewed this item",
-          });
-      }
-
-      console.error(
-        "CREATE REVIEW ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Create review failed",
-        });
+    if (!["TouristPlace", "Festival"].includes(targetType)) {
+      return res.status(400).json({
+        message: "Invalid targetType",
+      });
     }
+
+    const targetExists = await validateTarget(targetId, targetType);
+
+    if (!targetExists) {
+      return res.status(404).json({
+        message: "Target not found",
+      });
+    }
+
+    const parsedRating = Number(rating);
+
+    if (
+      Number.isNaN(parsedRating) ||
+      parsedRating < 1 ||
+      parsedRating > 5
+    ) {
+      return res.status(400).json({
+        message: "Rating must be between 1-5",
+      });
+    }
+
+    const review = await Review.create({
+      userId: req.user._id,
+      targetId,
+      targetType,
+      rating: parsedRating,
+      comment: comment || "",
+    });
+
+    let imageUrls = [];
+
+    if (req.files?.length > 0) {
+      const images = req.files.map((file) => ({
+        reviewId: review._id,
+        imageURL: `/uploads/reviews/${file.filename}`,
+      }));
+
+      await ReviewImage.insertMany(images);
+
+      imageUrls = images.map((img) => img.imageURL);
+    }
+
+    const populatedReview = await Review.findById(review._id)
+      .populate(REVIEW_POPULATE)
+      .lean();
+
+    res.status(201).json({
+      message: "Review created successfully",
+      review: formatReview(populatedReview, imageUrls),
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({
+        message: "You already reviewed this item",
+      });
+    }
+
+    console.error("CREATE REVIEW ERROR:", err);
+
+    res.status(500).json({
+      message: "Create review failed",
+    });
   }
-);
+});
 
 // =====================================================
 // ============ GET REVIEWS BY TARGET ==================
 // =====================================================
 
-router.get(
-  "/:targetType/:targetId",
-  async (req, res) => {
-    try {
-      const {
-        targetType,
-        targetId,
-      } = req.params;
+router.get("/:targetType/:targetId", async (req, res) => {
+  try {
+    const { targetType, targetId } = req.params;
 
-      // ==========================================
-      // VALIDATE TYPE
-      // ==========================================
-
-      if (
-        ![
-          "TouristPlace",
-          "Festival",
-        ].includes(
-          targetType
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Invalid targetType",
-          });
-      }
-
-      // ==========================================
-      // VALIDATE OBJECT ID
-      // ==========================================
-
-      if (
-        !mongoose.Types.ObjectId.isValid(
-          targetId
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Invalid targetId",
-          });
-      }
-
-      // ==========================================
-      // FIND REVIEWS
-      // ==========================================
-
-      const reviews =
-        await Review.find({
-          targetId,
-          targetType,
-        })
-          .populate(
-            "userId",
-            "fullName profileImage email"
-          )
-          .sort({
-            createdAt:
-              -1,
-          })
-          .lean();
-
-      const reviewIds =
-        reviews.map(
-          (
-            review
-          ) =>
-            review._id
-        );
-
-      // ==========================================
-      // REVIEW IMAGES
-      // ==========================================
-
-      const images =
-        await ReviewImage.find(
-          {
-            reviewId:
-              {
-                $in:
-                  reviewIds,
-              },
-          }
-        ).lean();
-
-      const imageMap =
-        images.reduce(
-          (
-            acc,
-            image
-          ) => {
-            const key =
-              image.reviewId.toString();
-
-            if (
-              !acc[
-                key
-              ]
-            ) {
-              acc[
-                key
-              ] = [];
-            }
-
-            acc[
-              key
-            ].push(
-              image.imageURL
-            );
-
-            return acc;
-          },
-          {}
-        );
-
-      // ==========================================
-      // FORMAT RESPONSE
-      // ==========================================
-
-      const formattedReviews =
-        reviews.map(
-          (
-            review
-          ) =>
-            formatReview(
-              review,
-              imageMap[
-                review._id.toString()
-              ] ||
-                []
-            )
-        );
-
-      // ==========================================
-      // REVIEW SUMMARY
-      // ==========================================
-
-      const totalReviews =
-        formattedReviews.length;
-
-      const averageRating =
-        totalReviews > 0
-          ? Number(
-              (
-                formattedReviews.reduce(
-                  (
-                    sum,
-                    item
-                  ) =>
-                    sum +
-                    item.rating,
-                  0
-                ) /
-                totalReviews
-              ).toFixed(
-                1
-              )
-            )
-          : 0;
-
-      res.json({
-        totalReviews,
-        averageRating,
-        reviews:
-          formattedReviews,
+    if (!["TouristPlace", "Festival"].includes(targetType)) {
+      return res.status(400).json({
+        message: "Invalid targetType",
       });
-    } catch (err) {
-      console.error(
-        "GET REVIEWS ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Load reviews failed",
-        });
     }
+
+    if (!mongoose.Types.ObjectId.isValid(targetId)) {
+      return res.status(400).json({
+        message: "Invalid targetId",
+      });
+    }
+
+    const reviews = await Review.find({
+      targetId,
+      targetType,
+    })
+      .populate(REVIEW_POPULATE)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const reviewIds = reviews.map((review) => review._id);
+    const imageMap = await getReviewImagesMap(reviewIds);
+
+    const formattedReviews = reviews.map((review) =>
+      formatReview(review, imageMap[review._id.toString()] || [])
+    );
+
+    const totalReviews = formattedReviews.length;
+
+    const averageRating =
+      totalReviews > 0
+        ? Number(
+            (
+              formattedReviews.reduce((sum, item) => sum + item.rating, 0) /
+              totalReviews
+            ).toFixed(1)
+          )
+        : 0;
+
+    res.json({
+      totalReviews,
+      averageRating,
+      reviews: formattedReviews,
+    });
+  } catch (err) {
+    console.error("GET REVIEWS ERROR:", err);
+
+    res.status(500).json({
+      message: "Load reviews failed",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= UPDATE REVIEW =====================
 // =====================================================
 
-router.put(
-  "/:id",
-  protect,
-  uploadReviews.array(
-    "images",
-    5
-  ),
+router.put("/:id", protect, uploadReviews.array("images", 5), async (req, res) => {
+  try {
+    const { rating, comment } = req.body;
 
-  async (req, res) => {
-    try {
-      const {
-        rating,
-        comment,
-      } = req.body;
+    const review = await Review.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+    });
 
-      // ==========================================
-      // FIND REVIEW
-      // ==========================================
-
-      const review =
-        await Review.findOne(
-          {
-            _id:
-              req.params.id,
-
-            userId:
-              req.user._id,
-          }
-        );
-
-      if (!review) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Review not found",
-          });
-      }
-
-      // ==========================================
-      // UPDATE RATING
-      // ==========================================
-
-      if (
-        rating !==
-        undefined
-      ) {
-        const parsedRating =
-          Number(
-            rating
-          );
-
-        if (
-          Number.isNaN(
-            parsedRating
-          ) ||
-          parsedRating <
-            1 ||
-          parsedRating >
-            5
-        ) {
-          return res
-            .status(400)
-            .json({
-              message:
-                "Rating must be between 1-5",
-            });
-        }
-
-        review.rating =
-          parsedRating;
-      }
-
-      // ==========================================
-      // UPDATE COMMENT
-      // ==========================================
-
-      if (
-        comment !==
-        undefined
-      ) {
-        review.comment =
-          comment;
-      }
-
-      await review.save();
-
-      // ==========================================
-      // REPLACE IMAGES
-      // ==========================================
-
-      if (
-        req.files?.length >
-        0
-      ) {
-        // ลบ image records เดิม
-        await ReviewImage.deleteMany(
-          {
-            reviewId:
-              review._id,
-          }
-        );
-
-        // เพิ่มใหม่
-        const newImages =
-          req.files.map(
-            (
-              file
-            ) => ({
-              reviewId:
-                review._id,
-
-              imageURL:
-                `/uploads/reviews/${file.filename}`,
-            })
-          );
-
-        await ReviewImage.insertMany(
-          newImages
-        );
-      }
-
-      // ==========================================
-      // GET UPDATED
-      // ==========================================
-
-      const updatedReview =
-        await Review.findById(
-          review._id
-        )
-          .populate(
-            "userId",
-            "fullName profileImage email"
-          )
-          .lean();
-
-      const reviewImages =
-        await ReviewImage.find(
-          {
-            reviewId:
-              review._id,
-          }
-        ).lean();
-
-      res.json({
-        message:
-          "Review updated successfully",
-
-        review:
-          formatReview(
-            updatedReview,
-            reviewImages.map(
-              (
-                img
-              ) =>
-                img.imageURL
-            )
-          ),
+    if (!review) {
+      return res.status(404).json({
+        message: "Review not found",
       });
-    } catch (err) {
-      console.error(
-        "UPDATE REVIEW ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Update review failed",
-        });
     }
+
+    if (rating !== undefined) {
+      const parsedRating = Number(rating);
+
+      if (
+        Number.isNaN(parsedRating) ||
+        parsedRating < 1 ||
+        parsedRating > 5
+      ) {
+        return res.status(400).json({
+          message: "Rating must be between 1-5",
+        });
+      }
+
+      review.rating = parsedRating;
+    }
+
+    if (comment !== undefined) {
+      review.comment = comment;
+    }
+
+    await review.save();
+
+    if (req.files?.length > 0) {
+      await ReviewImage.deleteMany({
+        reviewId: review._id,
+      });
+
+      const newImages = req.files.map((file) => ({
+        reviewId: review._id,
+        imageURL: `/uploads/reviews/${file.filename}`,
+      }));
+
+      await ReviewImage.insertMany(newImages);
+    }
+
+    const updatedReview = await Review.findById(review._id)
+      .populate(REVIEW_POPULATE)
+      .lean();
+
+    const imageUrls = await getReviewImages(review._id);
+
+    res.json({
+      message: "Review updated successfully",
+      review: formatReview(updatedReview, imageUrls),
+    });
+  } catch (err) {
+    console.error("UPDATE REVIEW ERROR:", err);
+
+    res.status(500).json({
+      message: "Update review failed",
+    });
   }
-);
+});
 
 // =====================================================
 // ================= DELETE REVIEW =====================
 // =====================================================
 
-router.delete(
-  "/:id",
-  protect,
+router.delete("/:id", protect, async (req, res) => {
+  try {
+    const review = await Review.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.user._id,
+    });
 
-  async (req, res) => {
-    try {
-      const review =
-        await Review.findOne(
-          {
-            _id:
-              req.params.id,
-
-            userId:
-              req.user._id,
-          }
-        );
-
-      if (!review) {
-        return res
-          .status(404)
-          .json({
-            message:
-              "Review not found",
-          });
-      }
-
-      // ==========================================
-      // DELETE REVIEW IMAGES
-      // ==========================================
-
-      const reviewImages =
-        await ReviewImage.find(
-          {
-            reviewId:
-              review._id,
-          }
-        );
-
-      // ลบไฟล์จริง
-      for (const image of reviewImages) {
-        const filePath =
-          path.join(
-            __dirname,
-            "..",
-            image.imageURL
-          );
-
-        if (
-          fs.existsSync(
-            filePath
-          )
-        ) {
-          fs.unlinkSync(
-            filePath
-          );
-        }
-      }
-
-      await ReviewImage.deleteMany(
-        {
-          reviewId:
-            review._id,
-        }
-      );
-
-      // ==========================================
-      // DELETE REVIEW
-      // ==========================================
-
-      await review.deleteOne();
-
-      res.json({
-        message:
-          "Review deleted successfully",
+    if (!review) {
+      return res.status(404).json({
+        message: "Review not found",
       });
-    } catch (err) {
-      console.error(
-        "DELETE REVIEW ERROR:",
-        err
-      );
-
-      res
-        .status(500)
-        .json({
-          message:
-            "Delete review failed",
-        });
     }
+
+    await ReviewImage.deleteMany({
+      reviewId: review._id,
+    });
+
+    res.json({
+      message: "Review deleted successfully",
+    });
+  } catch (err) {
+    console.error("DELETE REVIEW ERROR:", err);
+
+    res.status(500).json({
+      message: "Delete review failed",
+    });
   }
-);
+});
 
 module.exports = router;
