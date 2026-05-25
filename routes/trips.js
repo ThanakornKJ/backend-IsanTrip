@@ -1,9 +1,11 @@
 const express = require("express");
+
 const router = express.Router();
 
 const Trip = require("../models/Trip");
 
 const protect = require("../middleware/authMiddleware");
+
 const {
   uploadTrips,
 } = require("../middleware/upload");
@@ -15,17 +17,29 @@ const {
 const TRIP_POPULATE = [
   {
     path: "tripPlaces.placeId",
+
     select:
-      "placeName provinceId latitude longitude placeImages categoryId typeId",
+      `
+      placeName
+      provinceId
+      categoryId
+      typeId
+      latitude
+      longitude
+      placeImages
+      `,
+
     populate: [
       {
         path: "provinceId",
         select: "name",
       },
+
       {
         path: "categoryId",
         select: "name",
       },
+
       {
         path: "typeId",
         select: "name",
@@ -35,8 +49,16 @@ const TRIP_POPULATE = [
 
   {
     path: "tripFestivals.festivalId",
+
     select:
-      "festivalName startDate endDate provinceId festivalImages",
+      `
+      festivalName
+      startDate
+      endDate
+      provinceId
+      festivalImages
+      `,
+
     populate: {
       path: "provinceId",
       select: "name",
@@ -45,23 +67,58 @@ const TRIP_POPULATE = [
 
   {
     path: "userId",
+
     select:
-      "fullName profileImage email",
+      `
+      fullName
+      email
+      profileImage
+      userType
+      `,
   },
 ];
 
 // =====================================================
+// ================= HELPER ============================
+// =====================================================
+
+const parseJsonField = (
+  field
+) => {
+  if (!field) {
+    return [];
+  }
+
+  if (
+    typeof field ===
+    "string"
+  ) {
+    return JSON.parse(
+      field
+    );
+  }
+
+  return field;
+};
+
+// =====================================================
 // ================= CREATE TRIP =======================
 // =====================================================
+
 router.post(
   "/create",
+
   protect,
+
   uploadTrips.array(
     "tripImages",
     10
   ),
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const {
         tripName,
@@ -69,82 +126,102 @@ router.post(
         endDate,
         startLocation,
         description,
+        isPublic,
         tripPlaces,
         tripFestivals,
       } = req.body;
 
       // ================= VALIDATION =================
+
       if (
         !tripName ||
         !startDate ||
         !endDate
       ) {
-        return res.status(400).json({
-          message:
-            "tripName, startDate และ endDate จำเป็นต้องกรอก",
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              "tripName, startDate และ endDate จำเป็นต้องกรอก",
+          });
       }
 
-      // ================= TRIP PLACES =================
-      let parsedPlaces = [];
+      // ================= PARSE PLACES =================
 
-      if (tripPlaces) {
+      let parsedPlaces =
+        [];
+
+      const placesData =
+        parseJsonField(
+          tripPlaces
+        );
+
+      if (
+        Array.isArray(
+          placesData
+        )
+      ) {
         parsedPlaces =
-          typeof tripPlaces ===
-          "string"
-            ? JSON.parse(
-                tripPlaces
-              )
-            : tripPlaces;
+          placesData
+            .map(
+              (
+                item
+              ) => ({
+                placeId:
+                  item.placeId,
 
-        parsedPlaces =
-          parsedPlaces
-            .map((p) => ({
-              placeId:
-                p.placeId,
+                sequenceNo:
+                  Number(
+                    item.sequenceNo
+                  ) || 1,
 
-              sequenceNo:
-                Number(
-                  p.sequenceNo
-                ),
-
-              visitDate:
-                p.visitDate ||
-                null,
-            }))
+                visitDate:
+                  item.visitDate ||
+                  null,
+              })
+            )
             .sort(
-              (a, b) =>
+              (
+                a,
+                b
+              ) =>
                 a.sequenceNo -
                 b.sequenceNo
             );
       }
 
-      // ================= FESTIVALS =================
-      let parsedFestivals = [];
+      // ================= PARSE FESTIVALS =================
 
-      if (tripFestivals) {
-        parsedFestivals =
-          typeof tripFestivals ===
-          "string"
-            ? JSON.parse(
-                tripFestivals
-              )
-            : tripFestivals;
+      let parsedFestivals =
+        [];
 
+      const festivalsData =
+        parseJsonField(
+          tripFestivals
+        );
+
+      if (
+        Array.isArray(
+          festivalsData
+        )
+      ) {
         parsedFestivals =
-          parsedFestivals.map(
-            (f) => ({
+          festivalsData.map(
+            (
+              item
+            ) => ({
               festivalId:
-                f.festivalId,
+                item.festivalId,
 
               attendDate:
-                f.attendDate ||
+                item.attendDate ||
                 null,
             })
           );
       }
 
       // ================= IMAGES =================
+
       const tripImages =
         req.files?.map(
           (
@@ -160,72 +237,92 @@ router.post(
         ) || [];
 
       // ================= CREATE =================
-      const trip =
-        await Trip.create({
-          userId:
-            req.user._id,
 
-          tripName,
+      const createdTrip =
+        await Trip.create(
+          {
+            userId:
+              req.user._id,
 
-          startDate,
-          endDate,
+            tripName,
 
-          startLocation:
-            startLocation ||
-            "",
+            startDate,
 
-          description:
-            description ||
-            "",
+            endDate,
 
-          tripImages,
+            startLocation:
+              startLocation ||
+              "",
 
-          tripPlaces:
-            parsedPlaces,
+            description:
+              description ||
+              "",
 
-          tripFestivals:
-            parsedFestivals,
-        });
+            isPublic:
+              isPublic ===
+                true ||
+              isPublic ===
+                "true",
 
-      // ================= RESPONSE =================
-      const populated =
+            tripImages,
+
+            tripPlaces:
+              parsedPlaces,
+
+            tripFestivals:
+              parsedFestivals,
+          }
+        );
+
+      const populatedTrip =
         await Trip.findById(
-          trip._id
+          createdTrip._id
         ).populate(
           TRIP_POPULATE
         );
 
-      res.status(201).json(
-        populated
-      );
+      res
+        .status(201)
+        .json(
+          populatedTrip
+        );
     } catch (err) {
       console.error(
         "CREATE TRIP ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Create trip failed",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Create trip failed",
+        });
     }
   }
 );
 
-
 // =====================================================
 // ================= GET MY TRIPS ======================
 // =====================================================
+
 router.get(
   "/my-trips",
+
   protect,
-  async (req, res) => {
+
+  async (
+    req,
+    res
+  ) => {
     try {
       const trips =
-        await Trip.find({
-          userId:
-            req.user._id,
-        })
+        await Trip.find(
+          {
+            userId:
+              req.user._id,
+          }
+        )
           .populate(
             TRIP_POPULATE
           )
@@ -234,17 +331,21 @@ router.get(
               -1,
           });
 
-      res.json(trips);
+      res.json(
+        trips
+      );
     } catch (err) {
       console.error(
         "GET MY TRIPS ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Load trips failed",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Load trips failed",
+        });
     }
   }
 );
@@ -252,14 +353,22 @@ router.get(
 // =====================================================
 // ================= GET PUBLIC TRIPS ==================
 // =====================================================
+
 router.get(
   "/public",
-  async (req, res) => {
+
+  async (
+    req,
+    res
+  ) => {
     try {
       const trips =
-        await Trip.find({
-          isPublic: true,
-        })
+        await Trip.find(
+          {
+            isPublic:
+              true,
+          }
+        )
           .populate(
             TRIP_POPULATE
           )
@@ -268,17 +377,21 @@ router.get(
               -1,
           });
 
-      res.json(trips);
+      res.json(
+        trips
+      );
     } catch (err) {
       console.error(
         "GET PUBLIC TRIPS ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Load public trips failed",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Load public trips failed",
+        });
     }
   }
 );
@@ -286,10 +399,16 @@ router.get(
 // =====================================================
 // ================= GET SINGLE TRIP ===================
 // =====================================================
+
 router.get(
   "/:id",
+
   protect,
-  async (req, res) => {
+
+  async (
+    req,
+    res
+  ) => {
     try {
       const trip =
         await Trip.findById(
@@ -299,15 +418,14 @@ router.get(
         );
 
       if (!trip) {
-        return res.status(404).json({
-          message:
-            "Trip not found",
-        });
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
       }
 
-      // ==========================================
-      // owner OR public only
-      // ==========================================
       const isOwner =
         trip.userId._id.equals(
           req.user._id
@@ -317,75 +435,88 @@ router.get(
         !isOwner &&
         !trip.isPublic
       ) {
-        return res.status(403).json({
-          message:
-            "Not allowed",
-        });
+        return res
+          .status(403)
+          .json({
+            message:
+              "Not allowed",
+          });
       }
 
-      res.json(trip);
+      res.json(
+        trip
+      );
     } catch (err) {
       console.error(
         "GET TRIP ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Load trip failed",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Load trip failed",
+        });
     }
   }
 );
 
 // =====================================================
-// ================= UPDATE TRIP ========================
+// ================= UPDATE TRIP =======================
 // =====================================================
+
 router.put(
   "/:id",
+
   protect,
+
   uploadTrips.array(
     "tripImages",
     10
   ),
 
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
+      const trip =
+        await Trip.findOne(
+          {
+            _id:
+              req.params.id,
+
+            userId:
+              req.user._id,
+          }
+        );
+
+      if (!trip) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
+      }
+
       const {
         tripName,
         startDate,
         endDate,
         startLocation,
         description,
+        isPublic,
         tripPlaces,
         tripFestivals,
       } = req.body;
 
-      // ==========================================
-      // หา trip ของ owner เท่านั้น
-      // ==========================================
-      const trip =
-        await Trip.findOne({
-          _id:
-            req.params.id,
-
-          userId:
-            req.user._id,
-        });
-
-      if (!trip) {
-        return res.status(404).json({
-          message:
-            "Trip not found",
-        });
-      }
-
       const updateData =
         {};
 
-      // ==========================================
-      // BASIC INFO
-      // ==========================================
+      // ================= BASIC INFO =================
+
       if (
         tripName !==
         undefined
@@ -426,70 +557,93 @@ router.put(
           description;
       }
 
-      // ==========================================
-      // TRIP PLACES
-      // ==========================================
-      if (tripPlaces) {
-        let parsedPlaces =
-          typeof tripPlaces ===
-          "string"
-            ? JSON.parse(
-                tripPlaces
-              )
-            : tripPlaces;
+      if (
+        isPublic !==
+        undefined
+      ) {
+        updateData.isPublic =
+          isPublic ===
+            true ||
+          isPublic ===
+            "true";
+      }
+
+      // ================= TRIP PLACES =================
+
+      if (
+        tripPlaces !==
+        undefined
+      ) {
+        const placesData =
+          parseJsonField(
+            tripPlaces
+          );
 
         updateData.tripPlaces =
-          parsedPlaces
-            .map((p) => ({
-              placeId:
-                p.placeId,
+          Array.isArray(
+            placesData
+          )
+            ? placesData
+                .map(
+                  (
+                    item
+                  ) => ({
+                    placeId:
+                      item.placeId,
 
-              sequenceNo:
-                Number(
-                  p.sequenceNo
-                ),
+                    sequenceNo:
+                      Number(
+                        item.sequenceNo
+                      ) || 1,
 
-              visitDate:
-                p.visitDate ||
-                null,
-            }))
-            .sort(
-              (a, b) =>
-                a.sequenceNo -
-                b.sequenceNo
-            );
+                    visitDate:
+                      item.visitDate ||
+                      null,
+                  })
+                )
+                .sort(
+                  (
+                    a,
+                    b
+                  ) =>
+                    a.sequenceNo -
+                    b.sequenceNo
+                )
+            : [];
       }
 
-      // ==========================================
-      // FESTIVALS
-      // ==========================================
+      // ================= FESTIVALS =================
+
       if (
-        tripFestivals
+        tripFestivals !==
+        undefined
       ) {
-        let parsedFestivals =
-          typeof tripFestivals ===
-          "string"
-            ? JSON.parse(
-                tripFestivals
-              )
-            : tripFestivals;
+        const festivalsData =
+          parseJsonField(
+            tripFestivals
+          );
 
         updateData.tripFestivals =
-          parsedFestivals.map(
-            (f) => ({
-              festivalId:
-                f.festivalId,
+          Array.isArray(
+            festivalsData
+          )
+            ? festivalsData.map(
+                (
+                  item
+                ) => ({
+                  festivalId:
+                    item.festivalId,
 
-              attendDate:
-                f.attendDate ||
-                null,
-            })
-          );
+                  attendDate:
+                    item.attendDate ||
+                    null,
+                })
+              )
+            : [];
       }
 
-      // ==========================================
-      // IMAGES
-      // ==========================================
+      // ================= IMAGES =================
+
       if (
         req.files &&
         req.files.length >
@@ -511,16 +665,18 @@ router.put(
           );
       }
 
-      // ==========================================
-      // UPDATE
-      // ==========================================
+      // ================= UPDATE =================
+
       const updatedTrip =
         await Trip.findByIdAndUpdate(
           req.params.id,
+
           updateData,
+
           {
             new: true,
-            runValidators: true,
+            runValidators:
+              true,
           }
         ).populate(
           TRIP_POPULATE
@@ -535,278 +691,544 @@ router.put(
         err
       );
 
-      res.status(500).json({
-        message:
-          "Update trip failed",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Update trip failed",
+        });
     }
   }
 );
 
-
-/// ================= DELETE TRIP =================
-router.delete("/:id", protect, async (req, res) => {
-  try {
-    const deletedTrip = await Trip.findOneAndDelete({
-      _id: req.params.id,
-      userId: req.user._id,
-    });
-
-    if (!deletedTrip) {
-      return res.status(404).json({ message: "Trip not found" });
-    }
-
-    res.json({ message: "Trip deleted successfully" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Delete trip failed" });
-  }
-});
-
 // =====================================================
-// ================= SHARE TRIP =========================
+// ================= DELETE TRIP =======================
 // =====================================================
-router.put("/:id/share", protect, async (req, res) => {
-  try {
-    const trip = await Trip.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        userId: req.user._id,
-      },
-      {
-        isPublic: true,
-      },
-      {
-        new: true,
+
+router.delete(
+  "/:id",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const deletedTrip =
+        await Trip.findOneAndDelete(
+          {
+            _id:
+              req.params.id,
+
+            userId:
+              req.user._id,
+          }
+        );
+
+      if (
+        !deletedTrip
+      ) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
       }
-    )
-      .populate("tripPlaces.placeId")
-      .populate("tripFestivals.festivalId");
 
-    if (!trip) {
-      return res.status(404).json({
-        message: "Trip not found",
+      res.json({
+        message:
+          "Trip deleted successfully",
       });
-    }
-
-    res.json(trip);
-  } catch (err) {
-    console.error("SHARE TRIP ERROR:", err);
-    res.status(500).json({
-      message: "Share trip failed",
-    });
-  }
-});
-
-
-// =====================================================
-// ================= MAKE PRIVATE =======================
-// =====================================================
-router.put("/:id/private", protect, async (req, res) => {
-  try {
-    const trip = await Trip.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        userId: req.user._id,
-      },
-      {
-        isPublic: false,
-      },
-      {
-        new: true,
-      }
-    )
-      .populate("tripPlaces.placeId")
-      .populate("tripFestivals.festivalId");
-
-    if (!trip) {
-      return res.status(404).json({
-        message: "Trip not found",
-      });
-    }
-
-    res.json(trip);
-  } catch (err) {
-    console.error("PRIVATE TRIP ERROR:", err);
-    res.status(500).json({
-      message: "Private trip failed",
-    });
-  }
-});
-
-
-// =====================================================
-// ================= SAVE PUBLIC TRIP ===================
-// =====================================================
-router.post("/:id/save", protect, async (req, res) => {
-  try {
-    const sourceTrip = await Trip.findById(req.params.id);
-
-    if (!sourceTrip || !sourceTrip.isPublic) {
-      return res.status(404).json({
-        message: "Trip not found",
-      });
-    }
-
-    // ห้าม save trip ตัวเอง
-    if (sourceTrip.userId.equals(req.user._id)) {
-      return res.status(400).json({
-        message: "Cannot save your own trip",
-      });
-    }
-
-    const clonedTrip = await Trip.create({
-      userId: req.user._id,
-
-      tripName: sourceTrip.tripName,
-      startDate: sourceTrip.startDate,
-      endDate: sourceTrip.endDate,
-      startLocation: sourceTrip.startLocation,
-      description: sourceTrip.description,
-
-      tripImages: sourceTrip.tripImages,
-
-      tripPlaces: sourceTrip.tripPlaces.map((p) => ({
-        placeId: p.placeId,
-        sequenceNo: p.sequenceNo,
-        visitDate: p.visitDate || null,
-      })),
-
-      tripFestivals: sourceTrip.tripFestivals.map((f) => ({
-        festivalId: f.festivalId,
-        attendDate: f.attendDate || null,
-      })),
-
-      isPublic: false,
-    });
-
-    const populatedTrip = await Trip.findById(clonedTrip._id)
-      .populate("tripPlaces.placeId")
-      .populate("tripFestivals.festivalId");
-
-    res.status(201).json(populatedTrip);
-
-  } catch (err) {
-    console.error("SAVE TRIP ERROR:", err);
-    res.status(500).json({
-      message: "Save trip failed",
-    });
-  }
-});
-
-
-// =====================================================
-// ================= ADD PLACE TO TRIP ==================
-// =====================================================
-router.post("/:tripId/add-place", protect, async (req, res) => {
-  try {
-    const { placeId, visitDate } = req.body;
-
-    const trip = await Trip.findOne({
-      _id: req.params.tripId,
-      userId: req.user._id,
-    });
-
-    if (!trip) {
-      return res.status(404).json({
-        message: "Trip not found",
-      });
-    }
-
-    const alreadyExists = trip.tripPlaces.some(
-      (item) =>
-        item.placeId.toString() === placeId
-    );
-
-    if (alreadyExists) {
-      return res.status(400).json({
-        message: "Place already exists in trip",
-      });
-    }
-
-    const maxSequence =
-      trip.tripPlaces.length > 0
-        ? Math.max(
-            ...trip.tripPlaces.map(
-              (p) => p.sequenceNo
-            )
-          )
-        : 0;
-
-    trip.tripPlaces.push({
-      placeId,
-      sequenceNo: maxSequence + 1,
-      visitDate: visitDate || null,
-    });
-
-    await trip.save();
-
-    const updatedTrip = await Trip.findById(trip._id)
-      .populate("tripPlaces.placeId")
-      .populate("tripFestivals.festivalId");
-
-    res.json(updatedTrip);
-
-  } catch (err) {
-    console.error("ADD PLACE ERROR:", err);
-    res.status(500).json({
-      message: "Add place failed",
-    });
-  }
-});
-
-
-// =====================================================
-// ================= ADD FESTIVAL TO TRIP ===============
-// =====================================================
-router.post("/:tripId/add-festival", protect, async (req, res) => {
-  try {
-    const { festivalId, attendDate } = req.body;
-
-    const trip = await Trip.findOne({
-      _id: req.params.tripId,
-      userId: req.user._id,
-    });
-
-    if (!trip) {
-      return res.status(404).json({
-        message: "Trip not found",
-      });
-    }
-
-    const alreadyExists =
-      trip.tripFestivals.some(
-        (item) =>
-          item.festivalId.toString() === festivalId
+    } catch (err) {
+      console.error(
+        "DELETE TRIP ERROR:",
+        err
       );
 
-    if (alreadyExists) {
-      return res.status(400).json({
-        message:
-          "Festival already exists in trip",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Delete trip failed",
+        });
     }
-
-    trip.tripFestivals.push({
-      festivalId,
-      attendDate: attendDate || null,
-    });
-
-    await trip.save();
-
-    const updatedTrip = await Trip.findById(trip._id)
-      .populate("tripPlaces.placeId")
-      .populate("tripFestivals.festivalId");
-
-    res.json(updatedTrip);
-
-  } catch (err) {
-    console.error("ADD FESTIVAL ERROR:", err);
-    res.status(500).json({
-      message: "Add festival failed",
-    });
   }
-});
+);
 
-module.exports = router;
+// =====================================================
+// ================= SHARE TRIP ========================
+// =====================================================
+
+router.put(
+  "/:id/share",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const trip =
+        await Trip.findOneAndUpdate(
+          {
+            _id:
+              req.params.id,
+
+            userId:
+              req.user._id,
+          },
+
+          {
+            isPublic:
+              true,
+          },
+
+          {
+            new: true,
+          }
+        ).populate(
+          TRIP_POPULATE
+        );
+
+      if (!trip) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
+      }
+
+      res.json(
+        trip
+      );
+    } catch (err) {
+      console.error(
+        "SHARE TRIP ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Share trip failed",
+        });
+    }
+  }
+);
+
+// =====================================================
+// ================= PRIVATE TRIP ======================
+// =====================================================
+
+router.put(
+  "/:id/private",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const trip =
+        await Trip.findOneAndUpdate(
+          {
+            _id:
+              req.params.id,
+
+            userId:
+              req.user._id,
+          },
+
+          {
+            isPublic:
+              false,
+          },
+
+          {
+            new: true,
+          }
+        ).populate(
+          TRIP_POPULATE
+        );
+
+      if (!trip) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
+      }
+
+      res.json(
+        trip
+      );
+    } catch (err) {
+      console.error(
+        "PRIVATE TRIP ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Private trip failed",
+        });
+    }
+  }
+);
+
+// =====================================================
+// ================= SAVE PUBLIC TRIP ==================
+// =====================================================
+
+router.post(
+  "/:id/save",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const sourceTrip =
+        await Trip.findById(
+          req.params.id
+        );
+
+      if (
+        !sourceTrip ||
+        !sourceTrip.isPublic
+      ) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
+      }
+
+      // ห้าม save trip ตัวเอง
+
+      if (
+        sourceTrip.userId.equals(
+          req.user._id
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Cannot save your own trip",
+          });
+      }
+
+      const clonedTrip =
+        await Trip.create(
+          {
+            userId:
+              req.user._id,
+
+            tripName:
+              sourceTrip.tripName,
+
+            startDate:
+              sourceTrip.startDate,
+
+            endDate:
+              sourceTrip.endDate,
+
+            startLocation:
+              sourceTrip.startLocation,
+
+            description:
+              sourceTrip.description,
+
+            tripImages:
+              sourceTrip.tripImages,
+
+            tripPlaces:
+              sourceTrip.tripPlaces.map(
+                (
+                  item
+                ) => ({
+                  placeId:
+                    item.placeId,
+
+                  sequenceNo:
+                    item.sequenceNo,
+
+                  visitDate:
+                    item.visitDate ||
+                    null,
+                })
+              ),
+
+            tripFestivals:
+              sourceTrip.tripFestivals.map(
+                (
+                  item
+                ) => ({
+                  festivalId:
+                    item.festivalId,
+
+                  attendDate:
+                    item.attendDate ||
+                    null,
+                })
+              ),
+
+            isPublic:
+              false,
+          }
+        );
+
+      const populatedTrip =
+        await Trip.findById(
+          clonedTrip._id
+        ).populate(
+          TRIP_POPULATE
+        );
+
+      res
+        .status(201)
+        .json(
+          populatedTrip
+        );
+    } catch (err) {
+      console.error(
+        "SAVE TRIP ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Save trip failed",
+        });
+    }
+  }
+);
+
+// =====================================================
+// ================= ADD PLACE TO TRIP =================
+// =====================================================
+
+router.post(
+  "/:tripId/add-place",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const {
+        placeId,
+        visitDate,
+      } = req.body;
+
+      const trip =
+        await Trip.findOne(
+          {
+            _id:
+              req.params.tripId,
+
+            userId:
+              req.user._id,
+          }
+        );
+
+      if (!trip) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
+      }
+
+      const alreadyExists =
+        trip.tripPlaces.some(
+          (
+            item
+          ) =>
+            item.placeId.toString() ===
+            placeId
+        );
+
+      if (
+        alreadyExists
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Place already exists in trip",
+          });
+      }
+
+      const maxSequence =
+        trip.tripPlaces.length >
+        0
+          ? Math.max(
+              ...trip.tripPlaces.map(
+                (
+                  item
+                ) =>
+                  item.sequenceNo
+              )
+            )
+          : 0;
+
+      trip.tripPlaces.push(
+        {
+          placeId,
+
+          sequenceNo:
+            maxSequence +
+            1,
+
+          visitDate:
+            visitDate ||
+            null,
+        }
+      );
+
+      await trip.save();
+
+      const updatedTrip =
+        await Trip.findById(
+          trip._id
+        ).populate(
+          TRIP_POPULATE
+        );
+
+      res.json(
+        updatedTrip
+      );
+    } catch (err) {
+      console.error(
+        "ADD PLACE ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Add place failed",
+        });
+    }
+  }
+);
+
+// =====================================================
+// ================= ADD FESTIVAL TO TRIP ==============
+// =====================================================
+
+router.post(
+  "/:tripId/add-festival",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const {
+        festivalId,
+        attendDate,
+      } = req.body;
+
+      const trip =
+        await Trip.findOne(
+          {
+            _id:
+              req.params.tripId,
+
+            userId:
+              req.user._id,
+          }
+        );
+
+      if (!trip) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Trip not found",
+          });
+      }
+
+      const alreadyExists =
+        trip.tripFestivals.some(
+          (
+            item
+          ) =>
+            item.festivalId.toString() ===
+            festivalId
+        );
+
+      if (
+        alreadyExists
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Festival already exists in trip",
+          });
+      }
+
+      trip.tripFestivals.push(
+        {
+          festivalId,
+
+          attendDate:
+            attendDate ||
+            null,
+        }
+      );
+
+      await trip.save();
+
+      const updatedTrip =
+        await Trip.findById(
+          trip._id
+        ).populate(
+          TRIP_POPULATE
+        );
+
+      res.json(
+        updatedTrip
+      );
+    } catch (err) {
+      console.error(
+        "ADD FESTIVAL ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Add festival failed",
+        });
+    }
+  }
+);
+
+module.exports =
+  router;

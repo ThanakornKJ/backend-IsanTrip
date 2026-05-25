@@ -1,81 +1,202 @@
 const express = require("express");
+
 const router = express.Router();
 
 const Festival = require("../models/Festival");
 const Province = require("../models/Province");
 
 const protect = require("../middleware/authMiddleware");
+
 const authorize = require("../middleware/roleMiddleware");
-const { uploadFestivals } = require("../middleware/upload");
+
+const {
+  uploadFestivals,
+} = require("../middleware/upload");
+
+// =====================================================
+// ================= POPULATE CONFIG ===================
+// =====================================================
+
+const FESTIVAL_POPULATE = [
+  {
+    path: "provinceId",
+
+    select: "name",
+  },
+
+  {
+    path:
+      "festivalLocations.placeId",
+
+    select:
+      `
+      placeName
+      provinceId
+      categoryId
+      typeId
+      latitude
+      longitude
+      placeImages
+      `,
+
+    populate: [
+      {
+        path: "provinceId",
+        select: "name",
+      },
+
+      {
+        path: "categoryId",
+        select: "name",
+      },
+
+      {
+        path: "typeId",
+        select: "name",
+      },
+    ],
+  },
+];
+
+// =====================================================
+// ================= HELPER ============================
+// =====================================================
+
+const parseJsonField = (
+  field
+) => {
+  if (!field) {
+    return [];
+  }
+
+  if (
+    typeof field ===
+    "string"
+  ) {
+    return JSON.parse(
+      field
+    );
+  }
+
+  return field;
+};
 
 // =====================================================
 // ================= GET ALL FESTIVALS =================
 // =====================================================
-router.get("/", protect, async (req, res) => {
-  try {
-    const festivals = await Festival.find()
-      .populate("provinceId", "name")
-      .populate({
-        path: "festivalLocations.placeId",
-        select:
-          "placeName provinceId latitude longitude placeImages",
-        populate: {
-          path: "provinceId",
-          select: "name",
-        },
-      })
-      .sort({ startDate: -1 });
 
-    res.json(festivals);
-  } catch (err) {
-    console.error("GET FESTIVALS ERROR:", err);
-    res.status(500).json({
-      message: "Server error",
-    });
+router.get(
+  "/",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const festivals =
+        await Festival.find()
+          .populate(
+            FESTIVAL_POPULATE
+          )
+          .sort({
+            startDate:
+              -1,
+          });
+
+      res.json(
+        festivals
+      );
+    } catch (err) {
+      console.error(
+        "GET FESTIVALS ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Server error",
+        });
+    }
   }
-});
+);
 
 // =====================================================
 // ================= GET FESTIVAL BY ID ================
 // =====================================================
-router.get("/:id", protect, async (req, res) => {
-  try {
-    const festival = await Festival.findById(req.params.id)
-      .populate("provinceId", "name")
-      .populate({
-        path: "festivalLocations.placeId",
-        select:
-          "placeName provinceId latitude longitude placeImages",
-        populate: {
-          path: "provinceId",
-          select: "name",
-        },
-      });
 
-    if (!festival) {
-      return res.status(404).json({
-        message: "Festival not found",
-      });
+router.get(
+  "/:id",
+
+  protect,
+
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const festival =
+        await Festival.findById(
+          req.params.id
+        ).populate(
+          FESTIVAL_POPULATE
+        );
+
+      if (
+        !festival
+      ) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Festival not found",
+          });
+      }
+
+      res.json(
+        festival
+      );
+    } catch (err) {
+      console.error(
+        "GET FESTIVAL ERROR:",
+        err
+      );
+
+      res
+        .status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
-
-    res.json(festival);
-  } catch (err) {
-    console.error("GET FESTIVAL ERROR:", err);
-    res.status(500).json({
-      message: "Server error",
-    });
   }
-});
+);
 
 // =====================================================
 // ================= CREATE FESTIVAL ===================
 // =====================================================
+
 router.post(
   "/",
+
   protect,
-  authorize("admin"),
-  uploadFestivals.array("images", 10),
-  async (req, res) => {
+
+  authorize(
+    "admin"
+  ),
+
+  uploadFestivals.array(
+    "images",
+    10
+  ),
+
+  async (
+    req,
+    res
+  ) => {
     try {
       const {
         festivalName,
@@ -86,105 +207,142 @@ router.post(
         festivalLocations,
       } = req.body;
 
-      // validation
+      // ================= VALIDATION =================
+
       if (
         !festivalName ||
         !startDate ||
         !endDate ||
         !province
       ) {
-        return res.status(400).json({
-          message:
-            "festivalName, startDate, endDate, province จำเป็นต้องกรอก",
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              "festivalName, startDate, endDate และ province จำเป็นต้องกรอก",
+          });
       }
 
-      // หา provinceId
+      // ================= PROVINCE =================
+
       const provinceDoc =
-        await Province.findOne({
-          name: province,
-        });
+        await Province.findOne(
+          {
+            name:
+              province,
+          }
+        );
 
-      if (!provinceDoc) {
-        return res.status(400).json({
-          message: "ไม่พบจังหวัด",
-        });
+      if (
+        !provinceDoc
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "ไม่พบจังหวัด",
+          });
       }
 
-      // parse locations
-      let parsedLocations = [];
+      // ================= LOCATIONS =================
 
-      if (festivalLocations) {
-        parsedLocations =
-          typeof festivalLocations === "string"
-            ? JSON.parse(festivalLocations)
-            : festivalLocations;
+      let parsedLocations =
+        [];
 
+      const locationsData =
+        parseJsonField(
+          festivalLocations
+        );
+
+      if (
+        Array.isArray(
+          locationsData
+        )
+      ) {
         parsedLocations =
-          parsedLocations.map((loc) => ({
-            placeId: loc.placeId,
-            eventDate:
-              loc.eventDate || null,
-            description:
-              loc.description || "",
-          }));
+          locationsData.map(
+            (
+              item
+            ) => ({
+              placeId:
+                item.placeId,
+
+              eventDate:
+                item.eventDate ||
+                null,
+
+              description:
+                item.description ||
+                "",
+            })
+          );
       }
 
-      // upload image
+      // ================= IMAGES =================
+
       const festivalImages =
         req.files?.map(
-          (file, index) => ({
+          (
+            file,
+            index
+          ) => ({
             imageURL:
               `uploads/festivals/${file.filename}`,
-            isCover: index === 0,
+
+            isCover:
+              index === 0,
           })
         ) || [];
 
-      // create
-      const newFestival =
-        await Festival.create({
-          festivalName,
-          description,
-          startDate,
-          endDate,
+      // ================= CREATE =================
 
-          provinceId:
-            provinceDoc._id,
+      const createdFestival =
+        await Festival.create(
+          {
+            festivalName,
 
-          festivalImages,
-          festivalLocations:
-            parsedLocations,
-        });
+            description:
+              description ||
+              "",
 
-      const populated =
+            startDate,
+
+            endDate,
+
+            provinceId:
+              provinceDoc._id,
+
+            festivalImages,
+
+            festivalLocations:
+              parsedLocations,
+          }
+        );
+
+      const populatedFestival =
         await Festival.findById(
-          newFestival._id
-        )
-          .populate(
-            "provinceId",
-            "name"
-          )
-          .populate({
-            path:
-              "festivalLocations.placeId",
-            select:
-              "placeName provinceId latitude longitude placeImages",
-            populate: {
-              path: "provinceId",
-              select: "name",
-            },
-          });
+          createdFestival._id
+        ).populate(
+          FESTIVAL_POPULATE
+        );
 
-      res.status(201).json(populated);
+      res
+        .status(201)
+        .json(
+          populatedFestival
+        );
     } catch (err) {
       console.error(
         "CREATE FESTIVAL ERROR:",
         err
       );
 
-      res.status(500).json({
-        message: "Server error",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -192,13 +350,42 @@ router.post(
 // =====================================================
 // ================= UPDATE FESTIVAL ===================
 // =====================================================
+
 router.put(
   "/:id",
+
   protect,
-  authorize("admin"),
-  uploadFestivals.array("images", 10),
-  async (req, res) => {
+
+  authorize(
+    "admin"
+  ),
+
+  uploadFestivals.array(
+    "images",
+    10
+  ),
+
+  async (
+    req,
+    res
+  ) => {
     try {
+      const festival =
+        await Festival.findById(
+          req.params.id
+        );
+
+      if (
+        !festival
+      ) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Festival not found",
+          });
+      }
+
       const {
         festivalName,
         description,
@@ -208,128 +395,161 @@ router.put(
         festivalLocations,
       } = req.body;
 
-      const updateData = {};
+      const updateData =
+        {};
 
-      if (festivalName) {
+      // ================= BASIC INFO =================
+
+      if (
+        festivalName !==
+        undefined
+      ) {
         updateData.festivalName =
           festivalName;
       }
 
-      if (description) {
+      if (
+        description !==
+        undefined
+      ) {
         updateData.description =
           description;
       }
 
-      if (startDate) {
+      if (
+        startDate !==
+        undefined
+      ) {
         updateData.startDate =
           startDate;
       }
 
-      if (endDate) {
+      if (
+        endDate !==
+        undefined
+      ) {
         updateData.endDate =
           endDate;
       }
 
-      // province → provinceId
-      if (province) {
-        const provinceDoc =
-          await Province.findOne({
-            name: province,
-          });
+      // ================= PROVINCE =================
 
-        if (!provinceDoc) {
-          return res.status(400).json({
-            message:
-              "ไม่พบจังหวัด",
-          });
+      if (
+        province !==
+        undefined
+      ) {
+        const provinceDoc =
+          await Province.findOne(
+            {
+              name:
+                province,
+            }
+          );
+
+        if (
+          !provinceDoc
+        ) {
+          return res
+            .status(400)
+            .json({
+              message:
+                "ไม่พบจังหวัด",
+            });
         }
 
         updateData.provinceId =
           provinceDoc._id;
       }
 
-      // locations
-      if (festivalLocations) {
-        let parsedLocations =
-          typeof festivalLocations ===
-          "string"
-            ? JSON.parse(
-                festivalLocations
-              )
-            : festivalLocations;
+      // ================= LOCATIONS =================
+
+      if (
+        festivalLocations !==
+        undefined
+      ) {
+        const locationsData =
+          parseJsonField(
+            festivalLocations
+          );
 
         updateData.festivalLocations =
-          parsedLocations.map(
-            (loc) => ({
-              placeId:
-                loc.placeId,
-              eventDate:
-                loc.eventDate ||
-                null,
-              description:
-                loc.description ||
-                "",
-            })
-          );
+          Array.isArray(
+            locationsData
+          )
+            ? locationsData.map(
+                (
+                  item
+                ) => ({
+                  placeId:
+                    item.placeId,
+
+                  eventDate:
+                    item.eventDate ||
+                    null,
+
+                  description:
+                    item.description ||
+                    "",
+                })
+              )
+            : [];
       }
 
-      // image
+      // ================= IMAGES =================
+
       if (
         req.files &&
-        req.files.length > 0
+        req.files.length >
+          0
       ) {
         updateData.festivalImages =
           req.files.map(
-            (file, index) => ({
+            (
+              file,
+              index
+            ) => ({
               imageURL:
                 `uploads/festivals/${file.filename}`,
+
               isCover:
-                index === 0,
+                index ===
+                0,
             })
           );
       }
 
-      const updated =
+      // ================= UPDATE =================
+
+      const updatedFestival =
         await Festival.findByIdAndUpdate(
           req.params.id,
+
           updateData,
+
           {
             new: true,
-            runValidators: true,
+            runValidators:
+              true,
           }
-        )
-          .populate(
-            "provinceId",
-            "name"
-          )
-          .populate({
-            path:
-              "festivalLocations.placeId",
-            select:
-              "placeName provinceId latitude longitude placeImages",
-            populate: {
-              path: "provinceId",
-              select: "name",
-            },
-          });
+        ).populate(
+          FESTIVAL_POPULATE
+        );
 
-      if (!updated) {
-        return res.status(404).json({
-          message:
-            "Festival not found",
-        });
-      }
-
-      res.json(updated);
+      res.json(
+        updatedFestival
+      );
     } catch (err) {
       console.error(
         "UPDATE FESTIVAL ERROR:",
         err
       );
 
-      res.status(500).json({
-        message: "Server error",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
@@ -337,22 +557,35 @@ router.put(
 // =====================================================
 // ================= DELETE FESTIVAL ===================
 // =====================================================
+
 router.delete(
   "/:id",
+
   protect,
-  authorize("admin"),
-  async (req, res) => {
+
+  authorize(
+    "admin"
+  ),
+
+  async (
+    req,
+    res
+  ) => {
     try {
-      const deleted =
+      const deletedFestival =
         await Festival.findByIdAndDelete(
           req.params.id
         );
 
-      if (!deleted) {
-        return res.status(404).json({
-          message:
-            "Festival not found",
-        });
+      if (
+        !deletedFestival
+      ) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Festival not found",
+          });
       }
 
       res.json({
@@ -365,11 +598,15 @@ router.delete(
         err
       );
 
-      res.status(500).json({
-        message: "Server error",
-      });
+      res
+        .status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
 
-module.exports = router;
+module.exports =
+  router;

@@ -1,6 +1,9 @@
 const express =
   require("express");
 
+const mongoose =
+  require("mongoose");
+
 const router =
   express.Router();
 
@@ -15,6 +18,130 @@ const protect =
     "../middleware/authMiddleware"
   );
 
+
+// =====================================================
+// ================= POPULATE CONFIG ===================
+// =====================================================
+
+const FAVORITE_POPULATE = {
+  path: "placeId",
+
+  select:
+    `
+      placeName
+      provinceId
+      categoryId
+      typeId
+      placeImages
+      latitude
+      longitude
+    `,
+
+  populate: [
+    {
+      path: "provinceId",
+      select: "name",
+    },
+
+    {
+      path: "categoryId",
+      select: "name",
+    },
+
+    {
+      path: "typeId",
+      select: "name",
+    },
+  ],
+};
+
+
+// =====================================================
+// ================= HELPERS ===========================
+// =====================================================
+
+const buildImageURL = (
+  req,
+  imagePath
+) => {
+
+  if (!imagePath) {
+    return "";
+  }
+
+  // already full url
+  if (
+    imagePath.startsWith(
+      "http"
+    )
+  ) {
+    return imagePath;
+  }
+
+  return `${req.protocol}://${req.get(
+    "host"
+  )}/${imagePath}`;
+};
+
+const formatFavorite = (
+  req,
+  favorite
+) => {
+
+  const place =
+    favorite.placeId;
+
+  if (!place) {
+    return null;
+  }
+
+  const coverImage =
+    place.placeImages?.find(
+      (img) =>
+        img.isCover
+    ) ||
+    place.placeImages?.[0];
+
+  return {
+    _id:
+      place._id,
+
+    favoriteId:
+      favorite._id,
+
+    placeName:
+      place.placeName,
+
+    province:
+      place.provinceId
+        ?.name || "",
+
+    category:
+      place.categoryId
+        ?.name || "",
+
+    touristType:
+      place.typeId
+        ?.name || "",
+
+    latitude:
+      place.latitude,
+
+    longitude:
+      place.longitude,
+
+    image:
+      buildImageURL(
+        req,
+        coverImage?.imageURL
+      ),
+
+    createdAt:
+      favorite.createdAt,
+  };
+};
+
+
 // =====================================================
 // ================= GET FAVORITES =====================
 // =====================================================
@@ -22,93 +149,54 @@ const protect =
 router.get(
   "/",
   protect,
+
   async (req, res) => {
     try {
+
       const favorites =
         await Favorite.find({
-          userId: req.user._id,
+          userId:
+            req.user._id,
         })
-          .populate({
-            path: "placeId",
-            select:
-              "placeName provinceId placeImages latitude longitude",
-            populate: {
-              path: "provinceId",
-              select: "name",
-            },
-          })
+          .populate(
+            FAVORITE_POPULATE
+          )
           .sort({
-            createdAt: -1,
+            createdAt:
+              -1,
           })
           .lean();
 
       const formatted =
         favorites
-          .filter(
-            (fav) => fav.placeId
+          .map((fav) =>
+            formatFavorite(
+              req,
+              fav
+            )
           )
-          .map((fav) => {
-            const place =
-              fav.placeId;
-
-            const coverImage =
-              place.placeImages?.find(
-                (img) =>
-                  img.isCover
-              ) ||
-              place.placeImages?.[0];
-
-            return {
-              _id:
-                place._id,
-
-              favoriteId:
-                fav._id,
-
-              name:
-                place.placeName,
-
-              province:
-                place.provinceId
-                  ?.name || "",
-
-              latitude:
-                place.latitude,
-
-              longitude:
-                place.longitude,
-
-              image:
-                coverImage
-                  ?.imageURL
-                  ? `${req.protocol}://${req.get(
-                      "host"
-                    )}/${
-                      coverImage.imageURL
-                    }`
-                  : "",
-
-              distance: "-",
-            };
-          });
+          .filter(Boolean);
 
       res.json(
         formatted
       );
 
     } catch (err) {
+
       console.error(
         "GET FAVORITES ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
-      });
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
+
 
 // =====================================================
 // ================= ADD FAVORITE ======================
@@ -117,11 +205,34 @@ router.get(
 router.post(
   "/:placeId",
   protect,
+
   async (req, res) => {
     try {
+
+      const {
+        placeId,
+      } = req.params;
+
+      // ================= VALIDATE OBJECT ID =================
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          placeId
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Invalid place id",
+          });
+      }
+
+      // ================= CHECK PLACE =================
+
       const place =
         await TouristPlace.findById(
-          req.params.placeId
+          placeId
         );
 
       if (!place) {
@@ -133,26 +244,17 @@ router.post(
           });
       }
 
-      await Favorite.create({
-        userId:
-          req.user._id,
+      // ================= CHECK DUPLICATE =================
 
-        placeId:
-          req.params
-            .placeId,
-      });
+      const exists =
+        await Favorite.findOne({
+          userId:
+            req.user._id,
 
-      res.json({
-        message:
-          "Added to favorites",
-      });
+          placeId,
+        });
 
-    } catch (err) {
-
-      // duplicate favorite
-      if (
-        err.code === 11000
-      ) {
+      if (exists) {
         return res
           .status(400)
           .json({
@@ -161,18 +263,41 @@ router.post(
           });
       }
 
+      // ================= CREATE FAVORITE =================
+
+      const favorite =
+        await Favorite.create({
+          userId:
+            req.user._id,
+
+          placeId,
+        });
+
+      res.status(201)
+        .json({
+          message:
+            "Added to favorites",
+
+          favoriteId:
+            favorite._id,
+        });
+
+    } catch (err) {
+
       console.error(
         "ADD FAVORITE ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
-      });
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
+
 
 // =====================================================
 // ================= REMOVE FAVORITE ===================
@@ -181,18 +306,49 @@ router.post(
 router.delete(
   "/:placeId",
   protect,
+
   async (req, res) => {
     try {
-      await Favorite.findOneAndDelete(
-        {
-          userId:
-            req.user._id,
 
-          placeId:
-            req.params
-              .placeId,
-        }
-      );
+      const {
+        placeId,
+      } = req.params;
+
+      // ================= VALIDATE OBJECT ID =================
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          placeId
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Invalid place id",
+          });
+      }
+
+      // ================= DELETE FAVORITE =================
+
+      const deleted =
+        await Favorite.findOneAndDelete(
+          {
+            userId:
+              req.user._id,
+
+            placeId,
+          }
+        );
+
+      if (!deleted) {
+        return res
+          .status(404)
+          .json({
+            message:
+              "Favorite not found",
+          });
+      }
 
       res.json({
         message:
@@ -200,18 +356,21 @@ router.delete(
       });
 
     } catch (err) {
+
       console.error(
         "REMOVE FAVORITE ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
-      });
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
+
 
 // =====================================================
 // ================= CHECK FAVORITE ====================
@@ -220,36 +379,60 @@ router.delete(
 router.get(
   "/check/:placeId",
   protect,
+
   async (req, res) => {
     try {
+
+      const {
+        placeId,
+      } = req.params;
+
+      // ================= VALIDATE OBJECT ID =================
+
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          placeId
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Invalid place id",
+          });
+      }
+
       const favorite =
         await Favorite.findOne(
           {
             userId:
-              req.user
-                ._id,
+              req.user._id,
 
-            placeId:
-              req.params
-                .placeId,
+            placeId,
           }
-        );
+        ).select("_id");
 
       res.json({
         isFavorite:
           !!favorite,
+
+        favoriteId:
+          favorite?._id ||
+          null,
       });
 
     } catch (err) {
+
       console.error(
         "CHECK FAVORITE ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
-      });
+      res.status(500)
+        .json({
+          message:
+            "Server error",
+        });
     }
   }
 );
