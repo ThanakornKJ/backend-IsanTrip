@@ -34,7 +34,7 @@ const categoryRoutes = require(
 );
 
 const placeTypeRoutes = require(
-  "./routes/place-types"
+  "./routes/placeType"
 );
 
 // ==========================
@@ -152,7 +152,7 @@ app.use(
 );
 
 app.use(
-  "/api/place-types",
+  "/api/placeType",
   placeTypeRoutes
 );
 
