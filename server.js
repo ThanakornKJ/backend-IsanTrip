@@ -30,7 +30,7 @@ const provinceRoutes = require("./routes/province");
 // NEW ROUTES
 // ==========================
 const categoryRoutes = require(
-  "./routes/categories"
+  "./routes/category"
 );
 
 const placeTypeRoutes = require(
@@ -147,7 +147,7 @@ app.use(
 // NEW API ROUTES
 // ==========================
 app.use(
-  "/api/categories",
+  "/api/category",
   categoryRoutes
 );
 
