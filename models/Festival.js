@@ -20,10 +20,18 @@ const festivalImageSchema = new mongoose.Schema(
 // ================= FESTIVAL LOCATION =================
 const festivalLocationSchema = new mongoose.Schema(
   {
-    placeId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "TouristPlace",
+    latitude: {
+      type: Number,
       required: true,
+      min: -90,
+      max: 90,
+    },
+
+    longitude: {
+      type: Number,
+      required: true,
+      min: -180,
+      max: 180,
     },
 
     eventDate: {
@@ -33,6 +41,7 @@ const festivalLocationSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+      default: "",
     },
   },
   { _id: false }
@@ -62,7 +71,6 @@ const festivalSchema = new mongoose.Schema(
       required: true,
     },
 
-    // FK → จังหวัด
     provinceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Province",

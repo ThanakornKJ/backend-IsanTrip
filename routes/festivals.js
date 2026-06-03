@@ -40,11 +40,28 @@ const buildFestivalLocations = (festivalLocations) => {
     return [];
   }
 
-  return locationsData.map((item) => ({
-    placeId: item.placeId,
-    eventDate: item.eventDate || null,
-    description: item.description || "",
-  }));
+  return locationsData
+    .map((item) => {
+      const latitude = Number(item.latitude);
+      const longitude = Number(item.longitude);
+
+      return {
+        latitude,
+        longitude,
+        eventDate: item.eventDate || null,
+        description: item.description || "",
+      };
+    })
+    .filter((item) => {
+      return (
+        Number.isFinite(item.latitude) &&
+        Number.isFinite(item.longitude) &&
+        item.latitude >= -90 &&
+        item.latitude <= 90 &&
+        item.longitude >= -180 &&
+        item.longitude <= 180
+      );
+    });
 };
 
 // =====================================================
