@@ -35,8 +35,7 @@ const PLACE_POPULATE = [
 
 // =====================================================
 // ============ PLACE INSIDE OTHER POPULATE ============
-// ใช้ตอน populate tripPlaces.placeId,
-// festivalLocations.placeId, favorite.placeId
+// ใช้ตอน populate tripPlaces.placeId, favorite.placeId
 // =====================================================
 
 const PLACE_DEEP_POPULATE = {
@@ -68,37 +67,14 @@ const PLACE_DEEP_POPULATE = {
 // ================= FESTIVAL POPULATE =================
 // ใช้กับ FestivalModel:
 // provinceId ต้องเป็น object
-// festivalLocations.placeId ต้องเป็น object
+// หมายเหตุ: festivalLocations ตอนนี้ใช้ latitude/longitude แล้ว
+// จึงไม่ต้อง populate festivalLocations.placeId อีก
 // =====================================================
 
 const FESTIVAL_POPULATE = [
   {
     path: "provinceId",
     select: "name",
-  },
-  {
-    path: "festivalLocations.placeId",
-    select: `
-      placeName
-      description
-      address
-      provinceId
-      categoryId
-      typeId
-      location
-      latitude
-      longitude
-      openingHours
-      contact
-      entranceFee
-      socialMedia
-      highlight
-      travelInfo
-      placeImages
-      createdAt
-      updatedAt
-    `,
-    populate: PLACE_POPULATE,
   },
 ];
 
@@ -215,7 +191,9 @@ const FAVORITE_POPULATE = [
 module.exports = {
   USER_SELECT,
   PLACE_POPULATE,
+  PLACE_DEEP_POPULATE,
   FESTIVAL_POPULATE,
+  FESTIVAL_IN_TRIP_POPULATE,
   TRIP_POPULATE,
   REVIEW_POPULATE,
   FAVORITE_POPULATE,
