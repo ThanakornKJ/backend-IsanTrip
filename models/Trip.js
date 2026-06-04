@@ -11,6 +11,12 @@ const tripImageSchema = new mongoose.Schema(
       trim: true,
     },
 
+    publicId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     isCover: {
       type: Boolean,
       default: false,
@@ -68,7 +74,6 @@ const tripFestivalSchema = new mongoose.Schema(
 // =====================================================
 const tripSchema = new mongoose.Schema(
   {
-    // เจ้าของทริป
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -111,19 +116,16 @@ const tripSchema = new mongoose.Schema(
       index: true,
     },
 
-    // รูปทริป
     tripImages: {
       type: [tripImageSchema],
       default: [],
     },
 
-    // รายการสถานที่ในทริป
     tripPlaces: {
       type: [tripPlaceSchema],
       default: [],
     },
 
-    // รายการเทศกาลในทริป
     tripFestivals: {
       type: [tripFestivalSchema],
       default: [],
@@ -134,44 +136,22 @@ const tripSchema = new mongoose.Schema(
   }
 );
 
-// =====================================================
-// ================= INDEXES ============================
-// =====================================================
-
-// สำหรับ feed public trips
 tripSchema.index({
   isPublic: 1,
   createdAt: -1,
 });
 
-// สำหรับ my trips
 tripSchema.index({
   userId: 1,
   createdAt: -1,
 });
 
-// =====================================================
-// ================= VALIDATION =========================
-// =====================================================
-
-// กัน endDate < startDate
 tripSchema.pre("save", function (next) {
-  if (
-    this.startDate &&
-    this.endDate &&
-    this.endDate < this.startDate
-  ) {
-    return next(
-      new Error(
-        "endDate ต้องมากกว่า startDate"
-      )
-    );
+  if (this.startDate && this.endDate && this.endDate < this.startDate) {
+    return next(new Error("endDate ต้องมากกว่า startDate"));
   }
 
   next();
 });
 
-module.exports = mongoose.model(
-  "Trip",
-  tripSchema
-);
+module.exports = mongoose.model("Trip", tripSchema);

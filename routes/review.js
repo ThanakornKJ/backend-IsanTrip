@@ -1,9 +1,6 @@
 const express = require("express");
 const router = express.Router();
 
-const fs = require("fs");
-const path = require("path");
-const multer = require("multer");
 const mongoose = require("mongoose");
 
 const Review = require("../models/Review");
@@ -12,61 +9,18 @@ const TouristPlace = require("../models/TouristPlace");
 const Festival = require("../models/Festival");
 
 const protect = require("../middleware/authMiddleware");
+
+const {
+  uploadReviews,
+  getCloudinaryImageUrl,
+  getCloudinaryPublicId,
+} = require("../middleware/upload");
+
 const { REVIEW_POPULATE } = require("../utils/populateConfig");
-
-// =====================================================
-// ================= UPLOAD CONFIG =====================
-// =====================================================
-
-const uploadDir = path.join(__dirname, "../uploads/reviews");
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, {
-    recursive: true,
-  });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.round(
-      Math.random() * 1e9
-    )}${path.extname(file.originalname)}`;
-
-    cb(null, uniqueName);
-  },
-});
-
-const fileFilter = (req, file, cb) => {
-  const allowedMimeTypes = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-  ];
-
-  if (allowedMimeTypes.includes(file.mimetype)) {
-    return cb(null, true);
-  }
-
-  cb(new Error("Only jpg, jpeg, png, webp are allowed"));
-};
-
-const uploadReviews = multer({
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-  },
-  fileFilter,
-});
 
 // =====================================================
 // ================= HELPERS ===========================
 // =====================================================
-
 const validateTarget = async (targetId, targetType) => {
   if (!mongoose.Types.ObjectId.isValid(targetId)) {
     return false;
@@ -83,8 +37,28 @@ const validateTarget = async (targetId, targetType) => {
   return false;
 };
 
+const buildReviewImages = (reviewId, files = []) => {
+  return files
+    .map((file) => {
+      const imageURL = getCloudinaryImageUrl(file);
+
+      if (!imageURL) {
+        return null;
+      }
+
+      return {
+        reviewId,
+        imageURL,
+        publicId: getCloudinaryPublicId(file),
+      };
+    })
+    .filter(Boolean);
+};
+
 const getReviewImages = async (reviewId) => {
-  const images = await ReviewImage.find({ reviewId }).lean();
+  const images = await ReviewImage.find({
+    reviewId,
+  }).lean();
 
   return images.map((img) => img.imageURL);
 };
@@ -113,10 +87,7 @@ const formatReview = (review, images = []) => {
   return {
     _id: review._id,
 
-    // keep backend field name matched with Flutter ReviewModel
     userId: review.userId || null,
-
-    // optional alias for older UI code
     user: review.userId || null,
 
     targetId: review.targetId,
@@ -132,7 +103,6 @@ const formatReview = (review, images = []) => {
 // =====================================================
 // ================= CREATE REVIEW =====================
 // =====================================================
-
 router.post("/", protect, uploadReviews.array("images", 5), async (req, res) => {
   try {
     const { targetId, targetType, rating, comment } = req.body;
@@ -174,14 +144,13 @@ router.post("/", protect, uploadReviews.array("images", 5), async (req, res) => 
     let imageUrls = [];
 
     if (req.files?.length > 0) {
-      const images = req.files.map((file) => ({
-        reviewId: review._id,
-        imageURL: `/uploads/reviews/${file.filename}`,
-      }));
+      const images = buildReviewImages(review._id, req.files);
 
-      await ReviewImage.insertMany(images);
+      if (images.length > 0) {
+        await ReviewImage.insertMany(images);
 
-      imageUrls = images.map((img) => img.imageURL);
+        imageUrls = images.map((img) => img.imageURL);
+      }
     }
 
     const populatedReview = await Review.findById(review._id)
@@ -210,7 +179,6 @@ router.post("/", protect, uploadReviews.array("images", 5), async (req, res) => 
 // =====================================================
 // ============ GET REVIEWS BY TARGET ==================
 // =====================================================
-
 router.get("/:targetType/:targetId", async (req, res) => {
   try {
     const { targetType, targetId } = req.params;
@@ -271,7 +239,6 @@ router.get("/:targetType/:targetId", async (req, res) => {
 // =====================================================
 // ================= UPDATE REVIEW =====================
 // =====================================================
-
 router.put("/:id", protect, uploadReviews.array("images", 5), async (req, res) => {
   try {
     const { rating, comment } = req.body;
@@ -314,12 +281,11 @@ router.put("/:id", protect, uploadReviews.array("images", 5), async (req, res) =
         reviewId: review._id,
       });
 
-      const newImages = req.files.map((file) => ({
-        reviewId: review._id,
-        imageURL: `/uploads/reviews/${file.filename}`,
-      }));
+      const newImages = buildReviewImages(review._id, req.files);
 
-      await ReviewImage.insertMany(newImages);
+      if (newImages.length > 0) {
+        await ReviewImage.insertMany(newImages);
+      }
     }
 
     const updatedReview = await Review.findById(review._id)
@@ -344,7 +310,6 @@ router.put("/:id", protect, uploadReviews.array("images", 5), async (req, res) =
 // =====================================================
 // ================= DELETE REVIEW =====================
 // =====================================================
-
 router.delete("/:id", protect, async (req, res) => {
   try {
     const review = await Review.findOneAndDelete({

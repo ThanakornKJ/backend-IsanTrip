@@ -1,45 +1,30 @@
-const mongoose =
-  require("mongoose");
+const mongoose = require("mongoose");
 
-const reviewImageSchema =
-  new mongoose.Schema(
-    {
-      // =====================================
-      // REVIEW ID
-      // =====================================
-      reviewId: {
-        type:
-          mongoose.Schema.Types.ObjectId,
-        ref: "Review",
-        required: true,
-        index: true,
-      },
-
-      // =====================================
-      // IMAGE URL
-      // =====================================
-      imageURL: {
-        type: String,
-        required: true,
-        trim: true,
-      },
+const reviewImageSchema = new mongoose.Schema(
+  {
+    reviewId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Review",
+      required: true,
+      index: true,
     },
-    {
-      timestamps: true,
-      versionKey: false,
-    }
-  );
 
-// =====================================
-// INDEX FOR PERFORMANCE
-// =====================================
+    imageURL: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-// reviewImageSchema.index({
-//   reviewId: 1,
-// });
+    publicId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  {
+    timestamps: true,
+    versionKey: false,
+  }
+);
 
-module.exports =
-  mongoose.model(
-    "ReviewImage",
-    reviewImageSchema
-  );
+module.exports = mongoose.model("ReviewImage", reviewImageSchema);

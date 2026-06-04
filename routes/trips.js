@@ -4,30 +4,50 @@ const router = express.Router();
 const Trip = require("../models/Trip");
 
 const protect = require("../middleware/authMiddleware");
-const { uploadTrips } = require("../middleware/upload");
+
+const {
+  uploadTrips,
+  getCloudinaryImageUrl,
+  getCloudinaryPublicId,
+} = require("../middleware/upload");
+
 const { TRIP_POPULATE } = require("../utils/populateConfig");
 
 // =====================================================
 // ================= HELPERS ===========================
 // =====================================================
-
 const parseJsonField = (field) => {
   if (!field) {
     return [];
   }
 
   if (typeof field === "string") {
-    return JSON.parse(field);
+    try {
+      return JSON.parse(field);
+    } catch (_) {
+      return [];
+    }
   }
 
   return field;
 };
 
 const buildTripImages = (files = []) => {
-  return files.map((file, index) => ({
-    imageURL: `/uploads/trips/${file.filename}`,
-    isCover: index === 0,
-  }));
+  return files
+    .map((file, index) => {
+      const imageURL = getCloudinaryImageUrl(file);
+
+      if (!imageURL) {
+        return null;
+      }
+
+      return {
+        imageURL,
+        publicId: getCloudinaryPublicId(file),
+        isCover: index === 0,
+      };
+    })
+    .filter(Boolean);
 };
 
 const buildTripPlaces = (tripPlaces) => {
@@ -62,7 +82,6 @@ const buildTripFestivals = (tripFestivals) => {
 // =====================================================
 // ================= CREATE TRIP =======================
 // =====================================================
-
 router.post(
   "/create",
   protect,
@@ -117,7 +136,6 @@ router.post(
 // =====================================================
 // ================= GET MY TRIPS ======================
 // =====================================================
-
 router.get("/my-trips", protect, async (req, res) => {
   try {
     const trips = await Trip.find({
@@ -140,7 +158,6 @@ router.get("/my-trips", protect, async (req, res) => {
 // =====================================================
 // ================= GET PUBLIC TRIPS ==================
 // =====================================================
-
 router.get("/public", async (req, res) => {
   try {
     const trips = await Trip.find({
@@ -163,7 +180,6 @@ router.get("/public", async (req, res) => {
 // =====================================================
 // ================= GET SINGLE TRIP ===================
 // =====================================================
-
 router.get("/:id", protect, async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id)
@@ -197,7 +213,6 @@ router.get("/:id", protect, async (req, res) => {
 // =====================================================
 // ================= UPDATE TRIP =======================
 // =====================================================
-
 router.put(
   "/:id",
   protect,
@@ -268,7 +283,6 @@ router.put(
 // =====================================================
 // ================= DELETE TRIP =======================
 // =====================================================
-
 router.delete("/:id", protect, async (req, res) => {
   try {
     const deletedTrip = await Trip.findOneAndDelete({
@@ -297,7 +311,6 @@ router.delete("/:id", protect, async (req, res) => {
 // =====================================================
 // ================= SHARE TRIP ========================
 // =====================================================
-
 router.put("/:id/share", protect, async (req, res) => {
   try {
     const trip = await Trip.findOneAndUpdate(
@@ -335,7 +348,6 @@ router.put("/:id/share", protect, async (req, res) => {
 // =====================================================
 // ================= PRIVATE TRIP ======================
 // =====================================================
-
 router.put("/:id/private", protect, async (req, res) => {
   try {
     const trip = await Trip.findOneAndUpdate(
@@ -373,7 +385,6 @@ router.put("/:id/private", protect, async (req, res) => {
 // =====================================================
 // ================= SAVE PUBLIC TRIP ==================
 // =====================================================
-
 router.post("/:id/save", protect, async (req, res) => {
   try {
     const sourceTrip = await Trip.findById(req.params.id);
@@ -427,7 +438,6 @@ router.post("/:id/save", protect, async (req, res) => {
 // =====================================================
 // ================= ADD PLACE TO TRIP =================
 // =====================================================
-
 router.post("/:tripId/add-place", protect, async (req, res) => {
   try {
     const { placeId, visitDate } = req.body;
@@ -483,7 +493,6 @@ router.post("/:tripId/add-place", protect, async (req, res) => {
 // =====================================================
 // ================= ADD FESTIVAL TO TRIP ==============
 // =====================================================
-
 router.post("/:tripId/add-festival", protect, async (req, res) => {
   try {
     const { festivalId, attendDate } = req.body;

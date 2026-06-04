@@ -9,17 +9,20 @@ const PlaceType = require("../models/PlaceType");
 const protect = require("../middleware/authMiddleware");
 const authorize = require("../middleware/roleMiddleware");
 
-const { uploadPlaces } = require("../middleware/upload");
+const {
+  uploadPlaces,
+  getCloudinaryImageUrl,
+  getCloudinaryPublicId,
+} = require("../middleware/upload");
+
 const { PLACE_POPULATE } = require("../utils/populateConfig");
 
 // =====================================================
 // ================= FORMAT PLACE ======================
 // =====================================================
-
 const formatPlace = (place) => {
   const coverImage =
-    place.placeImages?.find((img) => img.isCover) ||
-    place.placeImages?.[0];
+    place.placeImages?.find((img) => img.isCover) || place.placeImages?.[0];
 
   return {
     _id: place._id,
@@ -27,12 +30,10 @@ const formatPlace = (place) => {
     description: place.description,
     address: place.address,
 
-    // populated objects for Flutter models
     provinceId: place.provinceId,
     categoryId: place.categoryId,
     typeId: place.typeId,
 
-    // helper strings for simple UI cards
     province: place.provinceId?.name || "",
     category: place.categoryId?.name || "",
     touristType: place.typeId?.name || "",
@@ -59,13 +60,13 @@ const formatPlace = (place) => {
 // =====================================================
 // ================= HELPERS ===========================
 // =====================================================
-
 const buildPlaceFilter = async (query) => {
   const { keyword, province, category, type, touristType } = query;
   const filter = {};
 
   if (province && province !== "ทุกจังหวัด") {
     const provinceDoc = await Province.findOne({ name: province });
+
     if (provinceDoc) {
       filter.provinceId = provinceDoc._id;
     }
@@ -73,6 +74,7 @@ const buildPlaceFilter = async (query) => {
 
   if (category) {
     const categoryDoc = await Category.findOne({ name: category });
+
     if (categoryDoc) {
       filter.categoryId = categoryDoc._id;
     }
@@ -82,6 +84,7 @@ const buildPlaceFilter = async (query) => {
 
   if (typeName) {
     const typeDoc = await PlaceType.findOne({ name: typeName });
+
     if (typeDoc) {
       filter.typeId = typeDoc._id;
     }
@@ -119,20 +122,31 @@ const parseNumber = (value, fallback = 0) => {
   }
 
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const buildPlaceImages = (files = []) => {
-  return files.map((file, index) => ({
-    imageURL: `/uploads/places/${file.filename}`,
-    isCover: index === 0,
-  }));
+  return files
+    .map((file, index) => {
+      const imageURL = getCloudinaryImageUrl(file);
+
+      if (!imageURL) {
+        return null;
+      }
+
+      return {
+        imageURL,
+        publicId: getCloudinaryPublicId(file),
+        isCover: index === 0,
+      };
+    })
+    .filter(Boolean);
 };
 
 // =====================================================
 // ================= SEARCH PLACE ======================
 // =====================================================
-
 router.get("/search", protect, async (req, res) => {
   try {
     const filter = await buildPlaceFilter(req.query);
@@ -155,7 +169,6 @@ router.get("/search", protect, async (req, res) => {
 // =====================================================
 // ================= GET ALL PLACES ====================
 // =====================================================
-
 router.get("/", protect, async (req, res) => {
   try {
     const filter = await buildPlaceFilter(req.query);
@@ -178,7 +191,6 @@ router.get("/", protect, async (req, res) => {
 // =====================================================
 // ================= GET PLACES BY CATEGORY ============
 // =====================================================
-
 router.get("/category/:category", protect, async (req, res) => {
   try {
     const categoryDoc = await Category.findOne({
@@ -209,7 +221,6 @@ router.get("/category/:category", protect, async (req, res) => {
 // =====================================================
 // ================= GET PLACE BY ID ===================
 // =====================================================
-
 router.get("/:id", protect, async (req, res) => {
   try {
     const place = await TouristPlace.findById(req.params.id)
@@ -235,7 +246,6 @@ router.get("/:id", protect, async (req, res) => {
 // =====================================================
 // ================= CREATE PLACE ======================
 // =====================================================
-
 router.post(
   "/",
   protect,
@@ -321,7 +331,6 @@ router.post(
 // =====================================================
 // ================= UPDATE PLACE ======================
 // =====================================================
-
 router.put(
   "/:id",
   protect,
@@ -423,7 +432,6 @@ router.put(
 // =====================================================
 // ================= DELETE PLACE ======================
 // =====================================================
-
 router.delete("/:id", protect, authorize("admin"), async (req, res) => {
   try {
     const deletedPlace = await TouristPlace.findByIdAndDelete(req.params.id);

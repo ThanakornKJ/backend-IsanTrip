@@ -9,6 +9,12 @@ const festivalImageSchema = new mongoose.Schema(
       trim: true,
     },
 
+    publicId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     isCover: {
       type: Boolean,
       default: false,
@@ -59,6 +65,7 @@ const festivalSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+      default: "",
     },
 
     startDate: {
@@ -77,9 +84,15 @@ const festivalSchema = new mongoose.Schema(
       required: true,
     },
 
-    festivalImages: [festivalImageSchema],
+    festivalImages: {
+      type: [festivalImageSchema],
+      default: [],
+    },
 
-    festivalLocations: [festivalLocationSchema],
+    festivalLocations: {
+      type: [festivalLocationSchema],
+      default: [],
+    },
   },
   { timestamps: true }
 );

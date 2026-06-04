@@ -9,6 +9,12 @@ const placeImageSchema = new mongoose.Schema(
       trim: true,
     },
 
+    publicId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     isCover: {
       type: Boolean,
       default: false,
@@ -39,28 +45,24 @@ const touristPlaceSchema = new mongoose.Schema(
       default: "",
     },
 
-    // ================= PROVINCE =================
     provinceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Province",
       required: false,
     },
 
-    // ================= CATEGORY =================
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
       required: false,
     },
 
-    // ================= PLACE TYPE =================
     typeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "PlaceType",
       required: false,
     },
 
-    // ================= GEO LOCATION =================
     location: {
       type: {
         type: String,
@@ -70,11 +72,10 @@ const touristPlaceSchema = new mongoose.Schema(
 
       coordinates: {
         type: [Number],
-        default: [0, 0], // [longitude, latitude]
+        default: [0, 0],
       },
     },
 
-    // เก็บไว้ compatibility กับ frontend เดิม
     latitude: {
       type: Number,
       default: 0,
@@ -131,12 +132,10 @@ const touristPlaceSchema = new mongoose.Schema(
   }
 );
 
-// ================= GEO INDEX =================
 touristPlaceSchema.index({
   location: "2dsphere",
 });
 
-// ================= UNIQUE PLACE =================
 touristPlaceSchema.index(
   {
     placeName: 1,
@@ -146,7 +145,6 @@ touristPlaceSchema.index(
   }
 );
 
-// ================= AUTO SET LOCATION =================
 touristPlaceSchema.pre("save", function (next) {
   if (
     typeof this.latitude === "number" &&
@@ -161,8 +159,4 @@ touristPlaceSchema.pre("save", function (next) {
   next();
 });
 
-// ================= EXPORT =================
-module.exports = mongoose.model(
-  "TouristPlace",
-  touristPlaceSchema
-);
+module.exports = mongoose.model("TouristPlace", touristPlaceSchema);

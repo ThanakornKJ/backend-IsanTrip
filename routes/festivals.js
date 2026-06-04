@@ -7,30 +7,49 @@ const Province = require("../models/Province");
 const protect = require("../middleware/authMiddleware");
 const authorize = require("../middleware/roleMiddleware");
 
-const { uploadFestivals } = require("../middleware/upload");
+const {
+  uploadFestivals,
+  getCloudinaryImageUrl,
+  getCloudinaryPublicId,
+} = require("../middleware/upload");
+
 const { FESTIVAL_POPULATE } = require("../utils/populateConfig");
 
 // =====================================================
 // ================= HELPERS ===========================
 // =====================================================
-
 const parseJsonField = (field) => {
   if (!field) {
     return [];
   }
 
   if (typeof field === "string") {
-    return JSON.parse(field);
+    try {
+      return JSON.parse(field);
+    } catch (_) {
+      return [];
+    }
   }
 
   return field;
 };
 
 const buildFestivalImages = (files = []) => {
-  return files.map((file, index) => ({
-    imageURL: `/uploads/festivals/${file.filename}`,
-    isCover: index === 0,
-  }));
+  return files
+    .map((file, index) => {
+      const imageURL = getCloudinaryImageUrl(file);
+
+      if (!imageURL) {
+        return null;
+      }
+
+      return {
+        imageURL,
+        publicId: getCloudinaryPublicId(file),
+        isCover: index === 0,
+      };
+    })
+    .filter(Boolean);
 };
 
 const buildFestivalLocations = (festivalLocations) => {
@@ -67,7 +86,6 @@ const buildFestivalLocations = (festivalLocations) => {
 // =====================================================
 // ================= GET ALL FESTIVALS =================
 // =====================================================
-
 router.get("/", protect, async (req, res) => {
   try {
     const festivals = await Festival.find()
@@ -88,7 +106,6 @@ router.get("/", protect, async (req, res) => {
 // =====================================================
 // ================= GET FESTIVAL BY ID ================
 // =====================================================
-
 router.get("/:id", protect, async (req, res) => {
   try {
     const festival = await Festival.findById(req.params.id)
@@ -114,7 +131,6 @@ router.get("/:id", protect, async (req, res) => {
 // =====================================================
 // ================= CREATE FESTIVAL ===================
 // =====================================================
-
 router.post(
   "/",
   protect,
@@ -137,7 +153,9 @@ router.post(
         });
       }
 
-      const provinceDoc = await Province.findOne({ name: province });
+      const provinceDoc = await Province.findOne({
+        name: province,
+      });
 
       if (!provinceDoc) {
         return res.status(400).json({
@@ -173,7 +191,6 @@ router.post(
 // =====================================================
 // ================= UPDATE FESTIVAL ===================
 // =====================================================
-
 router.put(
   "/:id",
   protect,
@@ -204,7 +221,9 @@ router.put(
       if (endDate !== undefined) festival.endDate = endDate;
 
       if (province !== undefined) {
-        const provinceDoc = await Province.findOne({ name: province });
+        const provinceDoc = await Province.findOne({
+          name: province,
+        });
 
         if (!provinceDoc) {
           return res.status(400).json({
@@ -243,7 +262,6 @@ router.put(
 // =====================================================
 // ================= DELETE FESTIVAL ===================
 // =====================================================
-
 router.delete("/:id", protect, authorize("admin"), async (req, res) => {
   try {
     const deletedFestival = await Festival.findByIdAndDelete(req.params.id);
