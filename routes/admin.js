@@ -16,7 +16,13 @@ const PlaceType = require("../models/PlaceType");
 const protect = require("../middleware/authMiddleware");
 const authorize = require("../middleware/roleMiddleware");
 
-const { uploadPlaces, uploadTrips } = require("../middleware/upload");
+const {
+  uploadPlaces,
+  uploadTrips,
+  getCloudinaryImageUrl,
+  getCloudinaryPublicId,
+} = require("../middleware/upload");
+
 const { PLACE_POPULATE, TRIP_POPULATE } = require("../utils/populateConfig");
 
 // =====================================================
@@ -43,7 +49,12 @@ const parseJsonField = (field) => {
   }
 
   if (typeof field === "string") {
-    return JSON.parse(field);
+    try {
+      return JSON.parse(field);
+    } catch (err) {
+      console.error("PARSE JSON FIELD ERROR:", err);
+      return [];
+    }
   }
 
   return field;
@@ -55,22 +66,53 @@ const parseNumber = (value, fallback = 0) => {
   }
 
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+// =====================================================
+// ================= IMAGE HELPERS =====================
+// =====================================================
+
 const buildPlaceImages = (files = []) => {
-  return files.map((file, index) => ({
-    imageURL: `/uploads/places/${file.filename}`,
-    isCover: index === 0,
-  }));
+  return files
+    .map((file, index) => {
+      const imageURL = getCloudinaryImageUrl(file);
+
+      if (!imageURL) {
+        return null;
+      }
+
+      return {
+        imageURL,
+        publicId: getCloudinaryPublicId(file),
+        isCover: index === 0,
+      };
+    })
+    .filter(Boolean);
 };
 
 const buildTripImages = (files = []) => {
-  return files.map((file, index) => ({
-    imageURL: `/uploads/trips/${file.filename}`,
-    isCover: index === 0,
-  }));
+  return files
+    .map((file, index) => {
+      const imageURL = getCloudinaryImageUrl(file);
+
+      if (!imageURL) {
+        return null;
+      }
+
+      return {
+        imageURL,
+        publicId: getCloudinaryPublicId(file),
+        isCover: index === 0,
+      };
+    })
+    .filter(Boolean);
 };
+
+// =====================================================
+// ================= TRIP HELPERS ======================
+// =====================================================
 
 const buildTripPlaces = (tripPlaces) => {
   const placesData = parseJsonField(tripPlaces);
@@ -80,6 +122,7 @@ const buildTripPlaces = (tripPlaces) => {
   }
 
   return placesData
+    .filter((item) => item && item.placeId)
     .map((item, index) => ({
       placeId: item.placeId,
       sequenceNo: Number(item.sequenceNo) || index + 1,
@@ -95,10 +138,12 @@ const buildTripFestivals = (tripFestivals) => {
     return [];
   }
 
-  return festivalsData.map((item) => ({
-    festivalId: item.festivalId,
-    attendDate: item.attendDate || null,
-  }));
+  return festivalsData
+    .filter((item) => item && item.festivalId)
+    .map((item) => ({
+      festivalId: item.festivalId,
+      attendDate: item.attendDate || null,
+    }));
 };
 
 const formatUser = (user) => {
@@ -116,6 +161,7 @@ const formatUser = (user) => {
 
 // =====================================================
 // ================= CREATE PLACE ======================
+// POST /api/admin/places
 // =====================================================
 
 router.post(
@@ -183,7 +229,7 @@ router.post(
         .populate(PLACE_POPULATE)
         .lean();
 
-      res.status(201).json(populated);
+      return res.status(201).json(populated);
     } catch (err) {
       console.error("CREATE PLACE ERROR:", err);
 
@@ -193,7 +239,7 @@ router.post(
         });
       }
 
-      res.status(500).json({
+      return res.status(500).json({
         message: "Server error",
       });
     }
@@ -202,6 +248,7 @@ router.post(
 
 // =====================================================
 // ================= GET ALL PLACES ====================
+// GET /api/admin/places
 // =====================================================
 
 router.get("/places", protect, authorize("admin"), async (req, res) => {
@@ -211,11 +258,11 @@ router.get("/places", protect, authorize("admin"), async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    res.json(places);
+    return res.json(places);
   } catch (err) {
     console.error("GET PLACES ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -223,6 +270,7 @@ router.get("/places", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= GET PLACE BY ID ===================
+// GET /api/admin/places/:id
 // =====================================================
 
 router.get("/places/:id", protect, authorize("admin"), async (req, res) => {
@@ -237,11 +285,11 @@ router.get("/places/:id", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    res.json(place);
+    return res.json(place);
   } catch (err) {
     console.error("GET PLACE ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -249,6 +297,7 @@ router.get("/places/:id", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= UPDATE PLACE ======================
+// PUT /api/admin/places/:id
 // =====================================================
 
 router.put(
@@ -283,15 +332,41 @@ router.put(
         travelInfo,
       } = req.body;
 
-      if (placeName !== undefined) place.placeName = placeName;
-      if (description !== undefined) place.description = description;
-      if (address !== undefined) place.address = address;
-      if (openingHours !== undefined) place.openingHours = openingHours;
-      if (contact !== undefined) place.contact = contact;
-      if (entranceFee !== undefined) place.entranceFee = entranceFee;
-      if (socialMedia !== undefined) place.socialMedia = socialMedia;
-      if (highlight !== undefined) place.highlight = highlight;
-      if (travelInfo !== undefined) place.travelInfo = travelInfo;
+      if (placeName !== undefined) {
+        place.placeName = placeName;
+      }
+
+      if (description !== undefined) {
+        place.description = description;
+      }
+
+      if (address !== undefined) {
+        place.address = address;
+      }
+
+      if (openingHours !== undefined) {
+        place.openingHours = openingHours;
+      }
+
+      if (contact !== undefined) {
+        place.contact = contact;
+      }
+
+      if (entranceFee !== undefined) {
+        place.entranceFee = entranceFee;
+      }
+
+      if (socialMedia !== undefined) {
+        place.socialMedia = socialMedia;
+      }
+
+      if (highlight !== undefined) {
+        place.highlight = highlight;
+      }
+
+      if (travelInfo !== undefined) {
+        place.travelInfo = travelInfo;
+      }
 
       if (
         province !== undefined ||
@@ -304,9 +379,17 @@ router.put(
           touristType,
         });
 
-        if (province !== undefined) place.provinceId = relationIds.provinceId;
-        if (category !== undefined) place.categoryId = relationIds.categoryId;
-        if (touristType !== undefined) place.typeId = relationIds.typeId;
+        if (province !== undefined) {
+          place.provinceId = relationIds.provinceId;
+        }
+
+        if (category !== undefined) {
+          place.categoryId = relationIds.categoryId;
+        }
+
+        if (touristType !== undefined) {
+          place.typeId = relationIds.typeId;
+        }
       }
 
       if (latitude !== undefined) {
@@ -332,7 +415,7 @@ router.put(
         .populate(PLACE_POPULATE)
         .lean();
 
-      res.json(updated);
+      return res.json(updated);
     } catch (err) {
       console.error("UPDATE PLACE ERROR:", err);
 
@@ -342,7 +425,7 @@ router.put(
         });
       }
 
-      res.status(500).json({
+      return res.status(500).json({
         message: "Server error",
       });
     }
@@ -351,6 +434,7 @@ router.put(
 
 // =====================================================
 // ================= DELETE PLACE ======================
+// DELETE /api/admin/places/:id
 // =====================================================
 
 router.delete("/places/:id", protect, authorize("admin"), async (req, res) => {
@@ -363,13 +447,13 @@ router.delete("/places/:id", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       message: "Place deleted successfully",
     });
   } catch (err) {
     console.error("DELETE PLACE ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -377,6 +461,7 @@ router.delete("/places/:id", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= ADMIN STATS =======================
+// GET /api/admin/stats
 // =====================================================
 
 router.get("/stats", protect, authorize("admin"), async (req, res) => {
@@ -395,7 +480,7 @@ router.get("/stats", protect, authorize("admin"), async (req, res) => {
       Review.countDocuments(),
     ]);
 
-    res.json({
+    return res.json({
       totalUsers,
       totalPlaces,
       totalTrips,
@@ -405,7 +490,7 @@ router.get("/stats", protect, authorize("admin"), async (req, res) => {
   } catch (err) {
     console.error("STATS ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -413,6 +498,7 @@ router.get("/stats", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= UPDATE TRIP =======================
+// PUT /api/admin/trips/:id
 // =====================================================
 
 router.put(
@@ -441,11 +527,25 @@ router.put(
         isPublic,
       } = req.body;
 
-      if (tripName !== undefined) trip.tripName = tripName;
-      if (startDate !== undefined) trip.startDate = startDate;
-      if (endDate !== undefined) trip.endDate = endDate;
-      if (description !== undefined) trip.description = description;
-      if (startLocation !== undefined) trip.startLocation = startLocation;
+      if (tripName !== undefined) {
+        trip.tripName = tripName;
+      }
+
+      if (startDate !== undefined && startDate !== "") {
+        trip.startDate = startDate;
+      }
+
+      if (endDate !== undefined && endDate !== "") {
+        trip.endDate = endDate;
+      }
+
+      if (description !== undefined) {
+        trip.description = description;
+      }
+
+      if (startLocation !== undefined) {
+        trip.startLocation = startLocation;
+      }
 
       if (typeof isPublic !== "undefined") {
         trip.isPublic = isPublic === true || isPublic === "true";
@@ -469,11 +569,11 @@ router.put(
         .populate(TRIP_POPULATE)
         .lean();
 
-      res.json(updatedTrip);
+      return res.json(updatedTrip);
     } catch (err) {
       console.error("UPDATE TRIP ERROR:", err);
 
-      res.status(500).json({
+      return res.status(500).json({
         message: "Update trip failed",
       });
     }
@@ -482,6 +582,7 @@ router.put(
 
 // =====================================================
 // ================= GET ALL TRIPS =====================
+// GET /api/admin/trips
 // =====================================================
 
 router.get("/trips", protect, authorize("admin"), async (req, res) => {
@@ -491,11 +592,11 @@ router.get("/trips", protect, authorize("admin"), async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    res.json(trips);
+    return res.json(trips);
   } catch (err) {
     console.error("GET TRIPS ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -503,6 +604,7 @@ router.get("/trips", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= GET TRIP BY ID ====================
+// GET /api/admin/trips/:id
 // =====================================================
 
 router.get("/trips/:id", protect, authorize("admin"), async (req, res) => {
@@ -517,11 +619,11 @@ router.get("/trips/:id", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    res.json(trip);
+    return res.json(trip);
   } catch (err) {
     console.error("GET TRIP ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -529,6 +631,7 @@ router.get("/trips/:id", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= DELETE TRIP =======================
+// DELETE /api/admin/trips/:id
 // =====================================================
 
 router.delete("/trips/:id", protect, authorize("admin"), async (req, res) => {
@@ -541,13 +644,13 @@ router.delete("/trips/:id", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       message: "Trip deleted successfully",
     });
   } catch (err) {
     console.error("DELETE TRIP ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Delete trip failed",
     });
   }
@@ -555,6 +658,7 @@ router.delete("/trips/:id", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= UPDATE TRIP STATUS ================
+// PUT /api/admin/trips/:id/status
 // =====================================================
 
 router.put(
@@ -584,11 +688,11 @@ router.put(
         });
       }
 
-      res.json(trip);
+      return res.json(trip);
     } catch (err) {
       console.error("UPDATE TRIP STATUS ERROR:", err);
 
-      res.status(500).json({
+      return res.status(500).json({
         message: "Update status failed",
       });
     }
@@ -597,19 +701,18 @@ router.put(
 
 // =====================================================
 // ================= GET ALL USERS =====================
+// GET /api/admin/users
 // =====================================================
 
 router.get("/users", protect, authorize("admin"), async (req, res) => {
   try {
-    const users = await User.find()
-      .sort({ createdAt: -1 })
-      .lean();
+    const users = await User.find().sort({ createdAt: -1 }).lean();
 
-    res.json(users.map(formatUser));
+    return res.json(users.map(formatUser));
   } catch (err) {
     console.error("GET USERS ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -617,6 +720,7 @@ router.get("/users", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= UPDATE USER =======================
+// PUT /api/admin/users/:id
 // =====================================================
 
 router.put("/users/:id", protect, authorize("admin"), async (req, res) => {
@@ -648,9 +752,17 @@ router.put("/users/:id", protect, authorize("admin"), async (req, res) => {
       user.email = email;
     }
 
-    if (fullName !== undefined) user.fullName = fullName;
-    if (userType !== undefined) user.userType = userType;
-    if (profileImage !== undefined) user.profileImage = profileImage;
+    if (fullName !== undefined) {
+      user.fullName = fullName;
+    }
+
+    if (userType !== undefined) {
+      user.userType = userType;
+    }
+
+    if (profileImage !== undefined) {
+      user.profileImage = profileImage;
+    }
 
     if (password) {
       user.password = await bcrypt.hash(password, 10);
@@ -660,11 +772,11 @@ router.put("/users/:id", protect, authorize("admin"), async (req, res) => {
 
     const result = await User.findById(user._id).lean();
 
-    res.json(formatUser(result));
+    return res.json(formatUser(result));
   } catch (err) {
     console.error("UPDATE USER ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
@@ -672,6 +784,7 @@ router.put("/users/:id", protect, authorize("admin"), async (req, res) => {
 
 // =====================================================
 // ================= DELETE USER =======================
+// DELETE /api/admin/users/:id
 // =====================================================
 
 router.delete("/users/:id", protect, authorize("admin"), async (req, res) => {
@@ -690,13 +803,13 @@ router.delete("/users/:id", protect, authorize("admin"), async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       message: "User deleted successfully",
     });
   } catch (err) {
     console.error("DELETE USER ERROR:", err);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error",
     });
   }
