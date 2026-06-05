@@ -297,6 +297,55 @@ app.get("/data-deletion", (req, res) => {
   `);
 });
 
+// ==========================
+// FACEBOOK DATA DELETION CALLBACK
+// ==========================
+// ใช้กรอกใน Meta Developer:
+// https://backend-isantrip.onrender.com/facebook-data-deletion
+
+app.post("/facebook-data-deletion", (req, res) => {
+  const confirmationCode = `isantrip_${Date.now()}`;
+
+  res.type("json").send(
+    JSON.stringify({
+      url: `https://backend-isantrip.onrender.com/data-deletion-status?code=${confirmationCode}`,
+      confirmation_code: confirmationCode,
+    })
+  );
+});
+
+app.get("/facebook-data-deletion", (req, res) => {
+  const confirmationCode = `isantrip_${Date.now()}`;
+
+  res.type("json").send(
+    JSON.stringify({
+      url: `https://backend-isantrip.onrender.com/data-deletion-status?code=${confirmationCode}`,
+      confirmation_code: confirmationCode,
+    })
+  );
+});
+
+app.get("/data-deletion-status", (req, res) => {
+  const code = req.query.code || "";
+
+  res.type("html").send(`
+    <!DOCTYPE html>
+    <html lang="th">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>สถานะการลบข้อมูล - Isan Trip</title>
+      </head>
+      <body>
+        <h1>สถานะการลบข้อมูลผู้ใช้ของ Isan Trip</h1>
+        <p>ระบบได้รับคำขอลบข้อมูลของคุณแล้ว</p>
+        <p>รหัสยืนยัน: <strong>${code}</strong></p>
+        <p>หากมีคำถามเพิ่มเติม กรุณาติดต่อ artyjj11@gmail.com</p>
+      </body>
+    </html>
+  `);
+});
+
 app.get("/privacy-policy/", (req, res) => {
   res.redirect(301, "/privacy-policy");
 });
