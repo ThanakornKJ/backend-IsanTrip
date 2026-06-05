@@ -335,6 +335,18 @@ app.get("/delete-data", (req, res) => {
   `);
 });
 
+app.get("/privacy-policy/", (req, res) => {
+  res.redirect(301, "/privacy-policy");
+});
+
+app.get("/terms/", (req, res) => {
+  res.redirect(301, "/terms");
+});
+
+app.get("/delete-data/", (req, res) => {
+  res.redirect(301, "/delete-data");
+});
+
 // ==========================
 // API ROUTES
 // ==========================
