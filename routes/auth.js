@@ -301,131 +301,117 @@ router.post(
   "/facebook-mobile",
   async (req, res) => {
     try {
-
-      const {
-        accessToken,
-      } = req.body;
+      const { accessToken } = req.body;
 
       if (!accessToken) {
         return res.status(400).json({
-          message:
-            "Access token required",
+          success: false,
+          message: "Access token required",
         });
       }
 
       // ================= VERIFY FACEBOOK TOKEN =================
+      // หมายเหตุ:
+      // ตอนนี้ Flutter ไม่ควรขอ permission email ก่อน
+      // ดังนั้น fbData.email อาจไม่มีค่า ต้อง fallback email เอง
 
-      const fbResponse =
-        await fetch(
-          `https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${accessToken}`
-        );
+      const fbResponse = await fetch(
+        `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${accessToken}`
+      );
 
-      const fbData =
-        await fbResponse.json();
+      const fbData = await fbResponse.json();
 
-      if (
-        !fbResponse.ok ||
-        fbData.error
-      ) {
+      if (!fbResponse.ok || fbData.error || !fbData.id) {
         return res.status(400).json({
-          message:
-            "Invalid Facebook token",
+          success: false,
+          message: "Invalid Facebook token",
+          error: fbData.error?.message,
         });
       }
 
-      const email =
-        normalizeEmail(
-          fbData.email || ""
-        );
+      const facebookId = fbData.id;
+
+      const email = normalizeEmail(
+        fbData.email || `facebook_${facebookId}@facebook.local`
+      );
+
+      const fullName =
+        fbData.name?.trim() || "Facebook User";
+
+      const profileImage =
+        fbData.picture?.data?.url || "";
 
       // ================= FIND USER =================
 
-      let user =
-        await User.findOne({
-          $or: [
-            {
-              facebookId:
-                fbData.id,
-            },
-
-            ...(email
-              ? [{ email }]
-              : []),
-          ],
-        });
+      let user = await User.findOne({
+        $or: [
+          {
+            facebookId,
+          },
+          {
+            email,
+          },
+        ],
+      });
 
       // ================= CREATE USER =================
 
       if (!user) {
-
-        user =
-          await User.create({
-            facebookId:
-              fbData.id,
-
-            fullName:
-              fbData.name,
-
-            email,
-
-            profileImage:
-              fbData.picture?.data
-                ?.url || "",
-
-            userType:
-              "user",
-          });
-
+        user = await User.create({
+          facebookId,
+          fullName,
+          email,
+          profileImage,
+          userType: "user",
+        });
       } else {
+        let needSave = false;
 
         // sync facebook id
         if (!user.facebookId) {
-          user.facebookId =
-            fbData.id;
+          user.facebookId = facebookId;
+          needSave = true;
+        }
+
+        // sync name
+        if (!user.fullName && fullName) {
+          user.fullName = fullName;
+          needSave = true;
         }
 
         // sync image
-        if (
-          !user.profileImage &&
-          fbData.picture?.data?.url
-        ) {
-          user.profileImage =
-            fbData.picture.data.url;
+        if (!user.profileImage && profileImage) {
+          user.profileImage = profileImage;
+          needSave = true;
         }
 
-        await user.save();
+        if (needSave) {
+          await user.save();
+        }
       }
 
       // ================= TOKEN =================
 
-      const tokens =
-        await createAndStoreTokens(
-          user
-        );
+      const tokens = await createAndStoreTokens(user);
 
-      res.json({
-        accessToken:
-          tokens.accessToken,
+      return res.json({
+        success: true,
 
-        refreshToken:
-          tokens.refreshToken,
+        message: "Facebook login success",
 
-        user:
-          buildUserResponse(
-            user
-          ),
+        accessToken: tokens.accessToken,
+
+        refreshToken: tokens.refreshToken,
+
+        user: buildUserResponse(user),
       });
-
     } catch (err) {
+      console.error("FACEBOOK MOBILE ERROR:", err);
 
-      console.error(
-        "FACEBOOK MOBILE ERROR:",
-        err
-      );
-
-      res.status(500).json({
-        message:
-          "Server error",
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: err.message,
       });
     }
   }
