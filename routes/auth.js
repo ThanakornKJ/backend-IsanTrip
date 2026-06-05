@@ -311,9 +311,9 @@ router.post(
       }
 
       // ================= VERIFY FACEBOOK TOKEN =================
-      // หมายเหตุ:
-      // ตอนนี้ Flutter ไม่ควรขอ permission email ก่อน
-      // ดังนั้น fbData.email อาจไม่มีค่า ต้อง fallback email เอง
+      // ตอนนี้เปิด permission email แล้ว
+      // แต่ Facebook บางบัญชีอาจยังไม่ส่ง email กลับมา
+      // ดังนั้นยังต้องมี fallback email เสมอ
 
       const fbResponse = await fetch(
         `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${accessToken}`
@@ -331,9 +331,16 @@ router.post(
 
       const facebookId = fbData.id;
 
-      const email = normalizeEmail(
-        fbData.email || `facebook_${facebookId}@facebook.local`
+      const facebookEmail = normalizeEmail(
+        fbData.email || ""
       );
+
+      const fallbackEmail = normalizeEmail(
+        `facebook_${facebookId}@facebook.local`
+      );
+
+      const email =
+        facebookEmail || fallbackEmail;
 
       const fullName =
         fbData.name?.trim() || "Facebook User";
@@ -341,18 +348,30 @@ router.post(
       const profileImage =
         fbData.picture?.data?.url || "";
 
+      const isFallbackEmail = (value = "") => {
+        return value.includes("@facebook.local");
+      };
+
       // ================= FIND USER =================
+      // หา user จาก facebookId ก่อน
+      // ถ้าไม่มีค่อยหา email จริง
+      // ถ้ายังไม่มีค่อยหา fallback email สำหรับ user เก่าที่เคย login ก่อนเปิด email permission
 
       let user = await User.findOne({
-        $or: [
-          {
-            facebookId,
-          },
-          {
-            email,
-          },
-        ],
+        facebookId,
       });
+
+      if (!user && facebookEmail) {
+        user = await User.findOne({
+          email: facebookEmail,
+        });
+      }
+
+      if (!user) {
+        user = await User.findOne({
+          email: fallbackEmail,
+        });
+      }
 
       // ================= CREATE USER =================
 
@@ -385,6 +404,25 @@ router.post(
           needSave = true;
         }
 
+        // ถ้า user เดิมเคยถูกสร้างด้วย fallback email
+        // แล้วตอนนี้ Facebook ส่ง email จริงมา ให้เปลี่ยนเป็น email จริง
+        if (
+          facebookEmail &&
+          isFallbackEmail(user.email)
+        ) {
+          const emailOwner = await User.findOne({
+            email: facebookEmail,
+            _id: {
+              $ne: user._id,
+            },
+          });
+
+          if (!emailOwner) {
+            user.email = facebookEmail;
+            needSave = true;
+          }
+        }
+
         if (needSave) {
           await user.save();
         }
@@ -392,21 +430,21 @@ router.post(
 
       // ================= TOKEN =================
 
-      const tokens = await createAndStoreTokens(user);
+      const tokens =
+        await createAndStoreTokens(user);
 
       return res.json({
         success: true,
-
         message: "Facebook login success",
-
         accessToken: tokens.accessToken,
-
         refreshToken: tokens.refreshToken,
-
         user: buildUserResponse(user),
       });
     } catch (err) {
-      console.error("FACEBOOK MOBILE ERROR:", err);
+      console.error(
+        "FACEBOOK MOBILE ERROR:",
+        err
+      );
 
       return res.status(500).json({
         success: false,
