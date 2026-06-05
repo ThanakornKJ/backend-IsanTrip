@@ -260,38 +260,14 @@ app.get("/terms", (req, res) => {
   `);
 });
 
-app.get("/delete-data", (req, res) => {
+app.get("/data-deletion", (req, res) => {
   res.type("html").send(`
     <!DOCTYPE html>
     <html lang="th">
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>คำแนะนำการลบข้อมูลผู้ใช้ - Isan Trip</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.8;
-            max-width: 900px;
-            margin: 40px auto;
-            padding: 0 20px;
-            color: #222;
-            background: #ffffff;
-          }
-
-          h1, h2 {
-            color: #1f2937;
-          }
-
-          h1 {
-            border-bottom: 1px solid #e5e7eb;
-            padding-bottom: 12px;
-          }
-
-          p, li {
-            font-size: 16px;
-          }
-        </style>
+        <title>Data Deletion Instructions - Isan Trip</title>
       </head>
       <body>
         <h1>คำแนะนำการลบข้อมูลผู้ใช้ของ Isan Trip</h1>
@@ -300,35 +276,21 @@ app.get("/delete-data", (req, res) => {
           ผู้ใช้สามารถขอลบข้อมูลบัญชีและข้อมูลที่เกี่ยวข้องกับการใช้งานแอป Isan Trip ได้
         </p>
 
-        <h2>1. วิธีการขอลบข้อมูล</h2>
+        <h2>วิธีการขอลบข้อมูล</h2>
         <p>
           กรุณาส่งคำขอลบข้อมูลมาที่อีเมล:
           <strong>artyjj11@gmail.com</strong>
         </p>
 
-        <p>โดยระบุข้อมูลดังต่อไปนี้:</p>
-
-        <ul>
-          <li>ชื่อบัญชีผู้ใช้</li>
-          <li>อีเมลที่ใช้สมัครหรือเข้าสู่ระบบ</li>
-          <li>แจ้งว่าต้องการลบข้อมูลบัญชี Isan Trip</li>
-        </ul>
-
-        <h2>2. ข้อมูลที่อาจถูกลบ</h2>
         <p>
-          ข้อมูลที่อาจถูกลบประกอบด้วย ข้อมูลบัญชีผู้ใช้ ข้อมูล Facebook Login ที่เชื่อมโยงกับบัญชี
+          โดยระบุชื่อบัญชีผู้ใช้ อีเมลที่ใช้สมัครหรือเข้าสู่ระบบ
+          และแจ้งว่าต้องการลบข้อมูลบัญชี Isan Trip
+        </p>
+
+        <h2>ข้อมูลที่อาจถูกลบ</h2>
+        <p>
+          ข้อมูลบัญชีผู้ใช้ ข้อมูล Facebook Login ที่เชื่อมโยงกับบัญชี
           รายการโปรด รีวิว รูปภาพ และข้อมูลอื่น ๆ ที่เกี่ยวข้องกับบัญชีผู้ใช้
-        </p>
-
-        <h2>3. ระยะเวลาดำเนินการ</h2>
-        <p>
-          ทีมงานจะตรวจสอบและดำเนินการลบข้อมูลภายในระยะเวลาที่เหมาะสมหลังจากได้รับคำขอ
-        </p>
-
-        <h2>4. การติดต่อ</h2>
-        <p>
-          หากมีคำถามเพิ่มเติม สามารถติดต่อได้ที่:
-          <strong>artyjj11@gmail.com</strong>
         </p>
       </body>
     </html>
@@ -343,8 +305,8 @@ app.get("/terms/", (req, res) => {
   res.redirect(301, "/terms");
 });
 
-app.get("/delete-data/", (req, res) => {
-  res.redirect(301, "/delete-data");
+app.get("/data-deletion/", (req, res) => {
+  res.redirect(301, "/data-deletion");
 });
 
 // ==========================
