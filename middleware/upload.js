@@ -26,7 +26,9 @@ function fileFilter(req, file, cb) {
     return cb(null, true);
   }
 
-  return cb(new Error("Only jpg, jpeg, png, webp image files are allowed"));
+  return cb(
+    new Error("รองรับเฉพาะไฟล์รูปภาพ jpg, jpeg, png, webp เท่านั้น")
+  );
 }
 
 // ==========================
@@ -41,8 +43,10 @@ function createCloudinaryStorage(folder) {
       allowed_formats: ["jpg", "jpeg", "png", "webp"],
       transformation: [
         {
-          quality: "auto",
+          quality: "auto:good",
           fetch_format: "auto",
+          width: 1600,
+          crop: "limit",
         },
       ],
     },
@@ -57,9 +61,46 @@ function createUploader(folder) {
     storage: createCloudinaryStorage(folder),
     fileFilter,
     limits: {
-      fileSize: 5 * 1024 * 1024,
+      fileSize: 15 * 1024 * 1024, // 15MB ต่อ 1 รูป
+      files: 10, // ไม่เกิน 10 รูปต่อครั้ง
     },
   });
+}
+
+// ==========================
+// MULTER ERROR HANDLER
+// ใช้ครอบ route ที่ upload รูป เพื่อส่ง error กลับไป frontend ให้อ่านง่าย
+// ==========================
+function handleUploadError(err, req, res, next) {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        success: false,
+        message: "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 15MB ต่อรูป",
+      });
+    }
+
+    if (err.code === "LIMIT_FILE_COUNT") {
+      return res.status(400).json({
+        success: false,
+        message: "เลือกรูปภาพได้ไม่เกิน 10 รูปต่อครั้ง",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: err.message || "อัปโหลดรูปภาพไม่สำเร็จ",
+    });
+  }
+
+  if (err) {
+    return res.status(400).json({
+      success: false,
+      message: err.message || "อัปโหลดรูปภาพไม่สำเร็จ",
+    });
+  }
+
+  next();
 }
 
 // ==========================
@@ -89,4 +130,5 @@ module.exports = {
   uploadReviews,
   getCloudinaryImageUrl,
   getCloudinaryPublicId,
+  handleUploadError,
 };
