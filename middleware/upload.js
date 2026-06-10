@@ -61,8 +61,10 @@ function createUploader(folder) {
     storage: createCloudinaryStorage(folder),
     fileFilter,
     limits: {
-      fileSize: 15 * 1024 * 1024, // 15MB ต่อ 1 รูป
-      files: 10, // ไม่เกิน 10 รูปต่อครั้ง
+      // Cloudinary plan ปัจจุบันรับสูงสุด 10MB
+      // ตั้งไว้ 9MB เพื่อกัน error จาก Cloudinary
+      fileSize: 9 * 1024 * 1024,
+      files: 10,
     },
   });
 }
@@ -76,7 +78,7 @@ function handleUploadError(err, req, res, next) {
     if (err.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
         success: false,
-        message: "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 15MB ต่อรูป",
+        message: "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปไม่เกิน 9MB ต่อรูป",
       });
     }
 
@@ -94,9 +96,21 @@ function handleUploadError(err, req, res, next) {
   }
 
   if (err) {
+    const message = err.message || "";
+
+    if (
+      message.includes("File size too large") ||
+      message.includes("Maximum is 10485760")
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "ไฟล์รูปภาพใหญ่เกิน 10MB ซึ่งเกินขีดจำกัดของ Cloudinary กรุณาเลือกรูปที่เล็กลง",
+      });
+    }
+
     return res.status(400).json({
       success: false,
-      message: err.message || "อัปโหลดรูปภาพไม่สำเร็จ",
+      message: message || "อัปโหลดรูปภาพไม่สำเร็จ",
     });
   }
 
