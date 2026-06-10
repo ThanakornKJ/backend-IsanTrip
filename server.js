@@ -24,6 +24,7 @@ const provinceRoutes = require("./routes/province");
 // ==========================
 const categoryRoutes = require("./routes/category");
 const placeTypeRoutes = require("./routes/placeType");
+const festivalTypeRoutes = require("./routes/festivalType");
 
 // ==========================
 // APP
@@ -375,6 +376,7 @@ app.use("/api/provinces", provinceRoutes);
 // ==========================
 app.use("/api/category", categoryRoutes);
 app.use("/api/placeType", placeTypeRoutes);
+app.use("/api/festival-types", festivalTypeRoutes);
 
 // ==========================
 // HEALTH CHECK

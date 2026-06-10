@@ -67,13 +67,21 @@ const PLACE_DEEP_POPULATE = {
 // ================= FESTIVAL POPULATE =================
 // ใช้กับ FestivalModel:
 // provinceId ต้องเป็น object
-// หมายเหตุ: festivalLocations ตอนนี้ใช้ latitude/longitude แล้ว
-// จึงไม่ต้อง populate festivalLocations.placeId อีก
+// festivalTypeId ต้องเป็น object
+// festivalLocations.provinceId ต้องเป็น object
 // =====================================================
 
 const FESTIVAL_POPULATE = [
   {
     path: "provinceId",
+    select: "name",
+  },
+  {
+    path: "festivalTypeId",
+    select: "name",
+  },
+  {
+    path: "festivalLocations.provinceId",
     select: "name",
   },
 ];
@@ -91,6 +99,8 @@ const FESTIVAL_IN_TRIP_POPULATE = {
     startDate
     endDate
     provinceId
+    festivalTypeId
+    status
     festivalImages
     festivalLocations
     createdAt

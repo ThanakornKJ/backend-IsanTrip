@@ -1,8 +1,11 @@
 const express = require("express");
+const mongoose = require("mongoose");
+
 const router = express.Router();
 
 const Festival = require("../models/Festival");
 const Province = require("../models/Province");
+const FestivalType = require("../models/FestivalType");
 
 const protect = require("../middleware/authMiddleware");
 const authorize = require("../middleware/roleMiddleware");
@@ -52,50 +55,160 @@ const buildFestivalImages = (files = []) => {
     .filter(Boolean);
 };
 
-const buildFestivalLocations = (festivalLocations) => {
+const findProvinceByNameOrId = async (provinceValue) => {
+  if (!provinceValue) {
+    return null;
+  }
+
+  if (mongoose.Types.ObjectId.isValid(provinceValue)) {
+    const provinceById = await Province.findById(provinceValue);
+
+    if (provinceById) {
+      return provinceById;
+    }
+  }
+
+  return Province.findOne({
+    name: provinceValue,
+  });
+};
+
+const findFestivalTypeByNameOrId = async ({
+  festivalTypeId,
+  festivalType,
+}) => {
+  const value = festivalTypeId || festivalType;
+
+  if (!value) {
+    return null;
+  }
+
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    const festivalTypeById = await FestivalType.findById(value);
+
+    if (festivalTypeById) {
+      return festivalTypeById;
+    }
+  }
+
+  return FestivalType.findOne({
+    name: value,
+  });
+};
+
+const buildFestivalLocations = async (
+  festivalLocations,
+  defaultProvinceId
+) => {
   const locationsData = parseJsonField(festivalLocations);
 
   if (!Array.isArray(locationsData)) {
     return [];
   }
 
-  return locationsData
-    .map((item) => {
-      const latitude = Number(item.latitude);
-      const longitude = Number(item.longitude);
+  const locations = [];
 
-      return {
-        latitude,
-        longitude,
-        eventDate: item.eventDate || null,
-        description: item.description || "",
-      };
-    })
-    .filter((item) => {
-      return (
-        Number.isFinite(item.latitude) &&
-        Number.isFinite(item.longitude) &&
-        item.latitude >= -90 &&
-        item.latitude <= 90 &&
-        item.longitude >= -180 &&
-        item.longitude <= 180
-      );
+  for (const item of locationsData) {
+    const latitude = Number(item.latitude);
+    const longitude = Number(item.longitude);
+
+    const isValidGps =
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
+
+    if (!isValidGps) {
+      continue;
+    }
+
+    let locationProvinceId = item.provinceId || defaultProvinceId;
+
+    if (item.province && !item.provinceId) {
+      const provinceDoc = await findProvinceByNameOrId(item.province);
+
+      if (provinceDoc) {
+        locationProvinceId = provinceDoc._id;
+      }
+    }
+
+    locations.push({
+      provinceId: locationProvinceId,
+      locationName: item.locationName || "",
+      latitude,
+      longitude,
+      eventDate: item.eventDate || null,
+      description: item.description || "",
     });
+  }
+
+  return locations;
 };
 
 // =====================================================
 // ================= GET ALL FESTIVALS =================
+// ใช้ได้ทั้ง admin และ user
+// ตัวอย่าง:
+// GET /api/festivals
+// GET /api/festivals?festivalTypeId=xxxxx
+// GET /api/festivals?status=published
 // =====================================================
 router.get("/", protect, async (req, res) => {
   try {
-    const festivals = await Festival.find()
+    const {
+      festivalTypeId,
+      status,
+    } = req.query;
+
+    const filter = {};
+
+    if (festivalTypeId) {
+      filter.festivalTypeId = festivalTypeId;
+    }
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const festivals = await Festival.find(filter)
       .populate(FESTIVAL_POPULATE)
-      .sort({ startDate: -1 })
+      .sort({
+        startDate: -1,
+      })
       .lean();
 
     res.json(festivals);
   } catch (err) {
     console.error("GET FESTIVALS ERROR:", err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
+  }
+});
+
+// =====================================================
+// ============= GET FESTIVALS BY TYPE =================
+// ใช้ฝั่ง user ตอนกดการ์ดประเภทเทศกาล
+// GET /api/festivals/type/:festivalTypeId
+// =====================================================
+router.get("/type/:festivalTypeId", protect, async (req, res) => {
+  try {
+    const festivals = await Festival.find({
+      festivalTypeId: req.params.festivalTypeId,
+      status: "published",
+    })
+      .populate(FESTIVAL_POPULATE)
+      .sort({
+        startDate: -1,
+      })
+      .lean();
+
+    res.json(festivals);
+  } catch (err) {
+    console.error("GET FESTIVALS BY TYPE ERROR:", err);
 
     res.status(500).json({
       message: "Server error",
@@ -144,22 +257,44 @@ router.post(
         startDate,
         endDate,
         province,
+        provinceId,
+        festivalType,
+        festivalTypeId,
+        status,
         festivalLocations,
       } = req.body;
 
-      if (!festivalName || !startDate || !endDate || !province) {
+      if (
+        !festivalName ||
+        !startDate ||
+        !endDate ||
+        (!province && !provinceId) ||
+        (!festivalType && !festivalTypeId)
+      ) {
         return res.status(400).json({
-          message: "festivalName, startDate, endDate และ province จำเป็นต้องกรอก",
+          message:
+            "festivalName, startDate, endDate, province และ festivalType จำเป็นต้องกรอก",
         });
       }
 
-      const provinceDoc = await Province.findOne({
-        name: province,
-      });
+      const provinceDoc = await findProvinceByNameOrId(
+        provinceId || province
+      );
 
       if (!provinceDoc) {
         return res.status(400).json({
           message: "ไม่พบจังหวัด",
+        });
+      }
+
+      const festivalTypeDoc = await findFestivalTypeByNameOrId({
+        festivalTypeId,
+        festivalType,
+      });
+
+      if (!festivalTypeDoc) {
+        return res.status(400).json({
+          message: "ไม่พบประเภทเทศกาล",
         });
       }
 
@@ -169,8 +304,13 @@ router.post(
         startDate,
         endDate,
         provinceId: provinceDoc._id,
+        festivalTypeId: festivalTypeDoc._id,
+        status: status || "published",
         festivalImages: buildFestivalImages(req.files || []),
-        festivalLocations: buildFestivalLocations(festivalLocations),
+        festivalLocations: await buildFestivalLocations(
+          festivalLocations,
+          provinceDoc._id
+        ),
       });
 
       const populatedFestival = await Festival.findById(createdFestival._id)
@@ -212,18 +352,37 @@ router.put(
         startDate,
         endDate,
         province,
+        provinceId,
+        festivalType,
+        festivalTypeId,
+        status,
         festivalLocations,
       } = req.body;
 
-      if (festivalName !== undefined) festival.festivalName = festivalName;
-      if (description !== undefined) festival.description = description;
-      if (startDate !== undefined) festival.startDate = startDate;
-      if (endDate !== undefined) festival.endDate = endDate;
+      if (festivalName !== undefined) {
+        festival.festivalName = festivalName;
+      }
 
-      if (province !== undefined) {
-        const provinceDoc = await Province.findOne({
-          name: province,
-        });
+      if (description !== undefined) {
+        festival.description = description;
+      }
+
+      if (startDate !== undefined) {
+        festival.startDate = startDate;
+      }
+
+      if (endDate !== undefined) {
+        festival.endDate = endDate;
+      }
+
+      if (status !== undefined) {
+        festival.status = status;
+      }
+
+      if (province !== undefined || provinceId !== undefined) {
+        const provinceDoc = await findProvinceByNameOrId(
+          provinceId || province
+        );
 
         if (!provinceDoc) {
           return res.status(400).json({
@@ -234,8 +393,26 @@ router.put(
         festival.provinceId = provinceDoc._id;
       }
 
+      if (festivalType !== undefined || festivalTypeId !== undefined) {
+        const festivalTypeDoc = await findFestivalTypeByNameOrId({
+          festivalTypeId,
+          festivalType,
+        });
+
+        if (!festivalTypeDoc) {
+          return res.status(400).json({
+            message: "ไม่พบประเภทเทศกาล",
+          });
+        }
+
+        festival.festivalTypeId = festivalTypeDoc._id;
+      }
+
       if (festivalLocations !== undefined) {
-        festival.festivalLocations = buildFestivalLocations(festivalLocations);
+        festival.festivalLocations = await buildFestivalLocations(
+          festivalLocations,
+          festival.provinceId
+        );
       }
 
       if (req.files?.length > 0) {

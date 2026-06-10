@@ -26,6 +26,18 @@ const festivalImageSchema = new mongoose.Schema(
 // ================= FESTIVAL LOCATION =================
 const festivalLocationSchema = new mongoose.Schema(
   {
+    provinceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Province",
+      required: true,
+    },
+
+    locationName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     latitude: {
       type: Number,
       required: true,
@@ -78,10 +90,22 @@ const festivalSchema = new mongoose.Schema(
       required: true,
     },
 
+    festivalTypeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FestivalType",
+      required: true,
+    },
+
     provinceId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Province",
       required: true,
+    },
+
+    status: {
+      type: String,
+      enum: ["draft", "published"],
+      default: "published",
     },
 
     festivalImages: {
@@ -94,7 +118,10 @@ const festivalSchema = new mongoose.Schema(
       default: [],
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    versionKey: false,
+  }
 );
 
 module.exports = mongoose.model("Festival", festivalSchema);
