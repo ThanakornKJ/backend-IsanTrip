@@ -89,6 +89,8 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const sendOtpEmail = async ({
   email,
   otp,
+  subject = "รหัส OTP สำหรับสมัครสมาชิก Isan Trip",
+  heading = "ยืนยันอีเมลสำหรับสมัครสมาชิก Isan Trip",
 }) => {
   if (!process.env.RESEND_API_KEY) {
     throw new Error("RESEND_API_KEY is missing");
@@ -104,11 +106,11 @@ const sendOtpEmail = async ({
     await resend.emails.send({
       from: `Isan Trip <${fromEmail}>`,
       to: email,
-      subject: "รหัส OTP สำหรับสมัครสมาชิก Isan Trip",
+      subject,
       text: `รหัส OTP ของคุณคือ ${otp} รหัสนี้หมดอายุภายใน 5 นาที`,
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-          <h2>ยืนยันอีเมลสำหรับสมัครสมาชิก Isan Trip</h2>
+          <h2>${heading}</h2>
           <p>รหัส OTP ของคุณคือ</p>
           <h1 style="letter-spacing: 4px;">${otp}</h1>
           <p>รหัสนี้หมดอายุภายใน 5 นาที</p>
@@ -673,7 +675,110 @@ router.get(
   }
 );
 
+// =====================================================
+// ============== UPDATE EMAIL SEND OTP ================
+// =====================================================
 
+router.post(
+  "/update-email/send-otp",
+  protect,
+  async (req, res) => {
+    try {
+      let { email } = req.body || {};
+
+      email = normalizeEmail(email);
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกอีเมลใหม่",
+        });
+      }
+
+      const emailRegex =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "รูปแบบอีเมลไม่ถูกต้อง",
+        });
+      }
+
+      const currentUser =
+        await User.findById(req.user._id);
+
+      if (!currentUser) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      if (email === currentUser.email) {
+        return res.status(400).json({
+          success: false,
+          message: "อีเมลนี้เป็นอีเมลเดิมของคุณ",
+        });
+      }
+
+      const emailExists =
+        await User.findOne({
+          email,
+          _id: {
+            $ne: currentUser._id,
+          },
+        });
+
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: "อีเมลนี้ถูกใช้งานแล้ว",
+        });
+      }
+
+      await Otp.deleteMany({
+        email,
+        purpose: "update_email",
+        used: false,
+      });
+
+      const otp = createOtpCode();
+
+      await Otp.create({
+        email,
+        otp,
+        purpose: "update_email",
+        expiresAt: new Date(
+          Date.now() + OTP_EXPIRE_MS
+        ),
+      });
+
+      await sendOtpEmail({
+        email,
+        otp,
+        subject: "รหัส OTP สำหรับเปลี่ยนอีเมล Isan Trip",
+        heading: "ยืนยันอีเมลใหม่สำหรับ Isan Trip",
+      });
+
+      return res.json({
+        success: true,
+        message: "ส่งรหัส OTP ไปยังอีเมลใหม่แล้ว",
+      });
+    } catch (err) {
+      console.error(
+        "UPDATE EMAIL SEND OTP ERROR:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: "ส่ง OTP ไม่สำเร็จ",
+        error: err.message,
+      });
+    }
+  }
+);
 // =====================================================
 // ================= UPDATE PROFILE ====================
 // =====================================================
@@ -683,13 +788,13 @@ router.put(
   protect,
   async (req, res) => {
     try {
-
       const {
         fullName,
         email,
         password,
         profileImage,
-      } = req.body;
+        otp,
+      } = req.body || {};
 
       const user =
         await User.findById(
@@ -698,73 +803,127 @@ router.put(
 
       if (!user) {
         return res.status(404).json({
-          message:
-            "User not found",
+          success: false,
+          message: "User not found",
         });
       }
 
       // ================= EMAIL =================
 
-      if (
-        email !== undefined &&
-        email !== user.email
-      ) {
-
+      if (email !== undefined) {
         const normalizedEmail =
           normalizeEmail(email);
 
-        const exists =
-          await User.findOne({
-            email:
-              normalizedEmail,
+        if (
+          normalizedEmail &&
+          normalizedEmail !== user.email
+        ) {
+          const exists =
+            await User.findOne({
+              email: normalizedEmail,
+              _id: {
+                $ne: user._id,
+              },
+            });
 
-            _id: {
-              $ne: user._id,
-            },
-          });
+          if (exists) {
+            return res.status(400).json({
+              success: false,
+              message: "อีเมลนี้ถูกใช้งานแล้ว",
+            });
+          }
 
-        if (exists) {
-          return res.status(400).json({
-            message:
-              "Email already exists",
-          });
+          const cleanOtp =
+            otp?.toString().trim() || "";
+
+          if (cleanOtp.length !== 6) {
+            return res.status(400).json({
+              success: false,
+              message: "กรุณากรอกรหัส OTP สำหรับเปลี่ยนอีเมล",
+            });
+          }
+
+          const otpRecord =
+            await Otp.findOne({
+              email: normalizedEmail,
+              purpose: "update_email",
+              used: false,
+            }).sort({
+              createdAt: -1,
+            });
+
+          if (!otpRecord) {
+            return res.status(400).json({
+              success: false,
+              message: "กรุณาขอรหัส OTP ก่อนเปลี่ยนอีเมล",
+            });
+          }
+
+          if (otpRecord.expiresAt < new Date()) {
+            await otpRecord.deleteOne();
+
+            return res.status(400).json({
+              success: false,
+              message: "รหัส OTP หมดอายุแล้ว กรุณาขอใหม่",
+            });
+          }
+
+          if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+            return res.status(400).json({
+              success: false,
+              message: "กรอกรหัส OTP ผิดเกินจำนวนที่กำหนด กรุณาขอใหม่",
+            });
+          }
+
+          if (otpRecord.otp !== cleanOtp) {
+            otpRecord.attempts += 1;
+            await otpRecord.save();
+
+            return res.status(400).json({
+              success: false,
+              message: "รหัส OTP ไม่ถูกต้อง",
+            });
+          }
+
+          otpRecord.used = true;
+          await otpRecord.save();
+
+          user.email = normalizedEmail;
         }
-
-        user.email =
-          normalizedEmail;
       }
 
       // ================= FULLNAME =================
 
-      if (
-        fullName !== undefined
-      ) {
-        user.fullName =
-          fullName.trim();
+      if (fullName !== undefined) {
+        const cleanFullName =
+          fullName.toString().trim();
+
+        if (!cleanFullName) {
+          return res.status(400).json({
+            success: false,
+            message: "กรุณากรอกชื่อ",
+          });
+        }
+
+        user.fullName = cleanFullName;
       }
 
       // ================= PROFILE IMAGE =================
 
-      if (
-        profileImage !== undefined
-      ) {
-        user.profileImage =
-          profileImage;
+      if (profileImage !== undefined) {
+        user.profileImage = profileImage;
       }
 
       // ================= PASSWORD =================
 
       if (password) {
-
         const passwordError =
-          validatePassword(
-            password
-          );
+          validatePassword(password);
 
         if (passwordError) {
           return res.status(400).json({
-            message:
-              passwordError,
+            success: false,
+            message: passwordError,
           });
         }
 
@@ -777,26 +936,21 @@ router.put(
 
       await user.save();
 
-      res.json({
-        message:
-          "Profile updated successfully",
-
-        user:
-          buildUserResponse(
-            user
-          ),
+      return res.json({
+        success: true,
+        message: "อัปเดตข้อมูลสำเร็จ",
+        user: buildUserResponse(user),
       });
-
     } catch (err) {
-
       console.error(
         "UPDATE PROFILE ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: err.message,
       });
     }
   }
