@@ -51,7 +51,7 @@ const formatPlace = (place) => {
 
     placeImages: place.placeImages || [],
     coverImage: coverImage?.imageURL || null,
-
+    categoryOrder: place.categoryOrder || 0,
     createdAt: place.createdAt,
     updatedAt: place.updatedAt,
   };
@@ -361,6 +361,7 @@ router.put(
         socialMedia,
         highlight,
         travelInfo,
+        categoryOrder,
       } = req.body;
 
       if (placeName !== undefined) place.placeName = placeName;
@@ -372,7 +373,9 @@ router.put(
       if (socialMedia !== undefined) place.socialMedia = socialMedia;
       if (highlight !== undefined) place.highlight = highlight;
       if (travelInfo !== undefined) place.travelInfo = travelInfo;
-
+      if (categoryOrder !== undefined) {
+        place.categoryOrder = parseNumber(categoryOrder, place.categoryOrder);
+      }
       if (
         province !== undefined ||
         category !== undefined ||
