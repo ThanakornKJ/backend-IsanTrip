@@ -49,6 +49,9 @@ const formatPlace = (place) => {
     highlight: place.highlight,
     travelInfo: place.travelInfo,
 
+    homeCategory: place.homeCategory || null,
+    homeCategoryOrder: place.homeCategoryOrder || 0,
+
     placeImages: place.placeImages || [],
     coverImage: coverImage?.imageURL || null,
 
@@ -144,6 +147,46 @@ const buildPlaceImages = (files = []) => {
     .filter(Boolean);
 };
 
+const HOME_CATEGORY_CONFIG = {
+  new: {
+    label: "สถานที่ใหม่",
+    limit: 5,
+  },
+  popular: {
+    label: "ยอดนิยม",
+    limit: 5,
+  },
+  recommended: {
+    label: "แนะนำ",
+    limit: 10,
+  },
+};
+
+const parsePlaceIds = (value) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (_) {
+    return value
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
 // =====================================================
 // ================= SEARCH PLACE ======================
 // =====================================================
@@ -217,6 +260,110 @@ router.get("/category/:category", protect, async (req, res) => {
     });
   }
 });
+
+// =====================================================
+// ========== UPDATE HOME CATEGORY GROUP ===============
+// PUT /api/places/home-category/:homeCategory
+// body: { placeIds: ["id1", "id2"] }
+// =====================================================
+router.put(
+  "/home-category/:homeCategory",
+  protect,
+  authorize("admin"),
+  uploadPlaces.none(),
+  async (req, res) => {
+    try {
+      const { homeCategory } = req.params;
+
+      const config = HOME_CATEGORY_CONFIG[homeCategory];
+
+      if (!config) {
+        return res.status(400).json({
+          message: "Invalid home category",
+        });
+      }
+
+      const rawPlaceIds = parsePlaceIds(req.body.placeIds);
+      const uniquePlaceIds = [...new Set(rawPlaceIds)]
+        .map((id) => id.toString().trim())
+        .filter(Boolean);
+
+      if (uniquePlaceIds.length > config.limit) {
+        return res.status(400).json({
+          message: `เลือกได้สูงสุด ${config.limit} รายการ`,
+        });
+      }
+
+      const validPlaces = uniquePlaceIds.length
+        ? await TouristPlace.find({
+            _id: {
+              $in: uniquePlaceIds,
+            },
+          }).select("_id")
+        : [];
+
+      const validIds = validPlaces.map((place) => place._id.toString());
+
+      // ล้างหมวดนี้ก่อน
+      // รายการที่ถูกลบออกจากหมวด จะกลายเป็น null
+      await TouristPlace.updateMany(
+        {
+          homeCategory,
+        },
+        {
+          $set: {
+            homeCategory: null,
+            homeCategoryOrder: 0,
+          },
+        }
+      );
+
+      // ตั้งค่ารายการใหม่ตามลำดับที่ admin จัด
+      // ถ้าสถานที่เคยอยู่หมวดอื่น จะถูกย้ายมาอยู่หมวดนี้ทันที
+      if (validIds.length > 0) {
+        await TouristPlace.bulkWrite(
+          validIds.map((id, index) => {
+            return {
+              updateOne: {
+                filter: {
+                  _id: id,
+                },
+                update: {
+                  $set: {
+                    homeCategory,
+                    homeCategoryOrder: index,
+                  },
+                },
+              },
+            };
+          })
+        );
+      }
+
+      const updatedPlaces = await TouristPlace.find({
+        homeCategory,
+      })
+        .populate(PLACE_POPULATE)
+        .sort({
+          homeCategoryOrder: 1,
+          createdAt: -1,
+        })
+        .lean();
+
+      res.json({
+        success: true,
+        message: "Home category updated",
+        data: updatedPlaces.map(formatPlace),
+      });
+    } catch (err) {
+      console.error("UPDATE HOME CATEGORY ERROR:", err);
+
+      res.status(500).json({
+        message: "Server error",
+      });
+    }
+  }
+);
 
 // =====================================================
 // ================= GET PLACE BY ID ===================
