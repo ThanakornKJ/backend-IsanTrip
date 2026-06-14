@@ -129,7 +129,7 @@ router.post(
   "/register/send-otp",
   async (req, res) => {
     try {
-      let { email } = req.body;
+      let { email } = req.body || {};
 
       email = normalizeEmail(email);
 
@@ -216,7 +216,7 @@ router.post(
         email,
         password,
         otp,
-      } = req.body;
+      } = req.body || {};
 
       fullName = fullName?.trim();
       email = normalizeEmail(email);
