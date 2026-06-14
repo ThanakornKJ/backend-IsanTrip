@@ -5,7 +5,7 @@ const passport = require("passport");
 
 const User = require("../models/User");
 const RefreshToken = require("../models/RefreshToken");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const Otp = require("../models/Otp");
 const {
   generateAccessToken,
@@ -84,44 +84,44 @@ const createOtpCode = () => {
     100000 + Math.random() * 900000
   ).toString();
 };
-
-const createEmailTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || "smtp.gmail.com",
-    port: Number(process.env.EMAIL_PORT || 587),
-    secure: String(process.env.EMAIL_SECURE).toLowerCase() === "true",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 15000,
-  });
-};
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const sendOtpEmail = async ({
   email,
   otp,
 }) => {
-  const transporter =
-    createEmailTransporter();
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY is missing");
+  }
 
-  await transporter.sendMail({
-    from: `"Isan Trip" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: "รหัส OTP สำหรับสมัครสมาชิก Isan Trip",
-    text: `รหัส OTP ของคุณคือ ${otp} รหัสนี้หมดอายุภายใน 5 นาที`,
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>ยืนยันอีเมลสำหรับสมัครสมาชิก Isan Trip</h2>
-        <p>รหัส OTP ของคุณคือ</p>
-        <h1 style="letter-spacing: 4px;">${otp}</h1>
-        <p>รหัสนี้หมดอายุภายใน 5 นาที</p>
-        <p>หากคุณไม่ได้เป็นผู้ขอรหัสนี้ กรุณาเพิกเฉยต่ออีเมลนี้</p>
-      </div>
-    `,
-  });
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL ||
+    "onboarding@resend.dev";
+
+  const { data, error } =
+    await resend.emails.send({
+      from: `Isan Trip <${fromEmail}>`,
+      to: email,
+      subject: "รหัส OTP สำหรับสมัครสมาชิก Isan Trip",
+      text: `รหัส OTP ของคุณคือ ${otp} รหัสนี้หมดอายุภายใน 5 นาที`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+          <h2>ยืนยันอีเมลสำหรับสมัครสมาชิก Isan Trip</h2>
+          <p>รหัส OTP ของคุณคือ</p>
+          <h1 style="letter-spacing: 4px;">${otp}</h1>
+          <p>รหัสนี้หมดอายุภายใน 5 นาที</p>
+          <p>หากคุณไม่ได้เป็นผู้ขอรหัสนี้ กรุณาเพิกเฉยต่ออีเมลนี้</p>
+        </div>
+      `,
+    });
+
+  if (error) {
+    throw new Error(
+      error.message || JSON.stringify(error)
+    );
+  }
+
+  return data;
 };
 
 // =====================================================
