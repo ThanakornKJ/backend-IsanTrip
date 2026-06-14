@@ -5,7 +5,8 @@ const passport = require("passport");
 
 const User = require("../models/User");
 const RefreshToken = require("../models/RefreshToken");
-
+const nodemailer = require("nodemailer");
+const Otp = require("../models/Otp");
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -23,7 +24,8 @@ const router = express.Router();
 
 const REFRESH_EXPIRE_MS =
   7 * 24 * 60 * 60 * 1000;
-
+const OTP_EXPIRE_MS = 5 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
 
 // =====================================================
 // ================= HELPERS ===========================
@@ -77,6 +79,128 @@ const validatePassword = (password) => {
   return null;
 };
 
+const createOtpCode = () => {
+  return Math.floor(
+    100000 + Math.random() * 900000
+  ).toString();
+};
+
+const createEmailTransporter = () => {
+  return nodemailer.createTransport({
+    host: process.env.EMAIL_HOST,
+    port: Number(process.env.EMAIL_PORT || 465),
+    secure: String(process.env.EMAIL_SECURE) === "true",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+};
+
+const sendOtpEmail = async ({
+  email,
+  otp,
+}) => {
+  const transporter =
+    createEmailTransporter();
+
+  await transporter.sendMail({
+    from: `"Isan Trip" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: "รหัส OTP สำหรับสมัครสมาชิก Isan Trip",
+    text: `รหัส OTP ของคุณคือ ${otp} รหัสนี้หมดอายุภายใน 5 นาที`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>ยืนยันอีเมลสำหรับสมัครสมาชิก Isan Trip</h2>
+        <p>รหัส OTP ของคุณคือ</p>
+        <h1 style="letter-spacing: 4px;">${otp}</h1>
+        <p>รหัสนี้หมดอายุภายใน 5 นาที</p>
+        <p>หากคุณไม่ได้เป็นผู้ขอรหัสนี้ กรุณาเพิกเฉยต่ออีเมลนี้</p>
+      </div>
+    `,
+  });
+};
+
+// =====================================================
+// ================= REGISTER SEND OTP =================
+// =====================================================
+
+router.post(
+  "/register/send-otp",
+  async (req, res) => {
+    try {
+      let { email } = req.body;
+
+      email = normalizeEmail(email);
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกอีเมล",
+        });
+      }
+
+      const emailRegex =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "รูปแบบอีเมลไม่ถูกต้อง",
+        });
+      }
+
+      const userExists =
+        await User.findOne({
+          email,
+        });
+
+      if (userExists) {
+        return res.status(400).json({
+          success: false,
+          message: "อีเมลนี้ถูกใช้งานแล้ว",
+        });
+      }
+
+      await Otp.deleteMany({
+        email,
+        purpose: "register",
+        used: false,
+      });
+
+      const otp = createOtpCode();
+
+      await Otp.create({
+        email,
+        otp,
+        purpose: "register",
+        expiresAt: new Date(
+          Date.now() + OTP_EXPIRE_MS
+        ),
+      });
+
+      await sendOtpEmail({
+        email,
+        otp,
+      });
+
+      return res.json({
+        success: true,
+        message: "ส่งรหัส OTP ไปยังอีเมลแล้ว",
+      });
+    } catch (err) {
+      console.error(
+        "REGISTER SEND OTP ERROR:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: "ส่ง OTP ไม่สำเร็จ",
+      });
+    }
+  }
+);
 
 // =====================================================
 // ================= REGISTER ==========================
@@ -86,26 +210,28 @@ router.post(
   "/register",
   async (req, res) => {
     try {
-
       let {
         fullName,
         email,
         password,
+        otp,
       } = req.body;
 
       fullName = fullName?.trim();
       email = normalizeEmail(email);
+      otp = otp?.trim();
 
       // ================= VALIDATION =================
 
       if (
         !fullName ||
         !email ||
-        !password
+        !password ||
+        !otp
       ) {
         return res.status(400).json({
-          message:
-            "กรุณากรอกข้อมูลให้ครบ",
+          success: false,
+          message: "กรุณากรอกข้อมูลให้ครบ",
         });
       }
 
@@ -114,7 +240,15 @@ router.post(
 
       if (passwordError) {
         return res.status(400).json({
+          success: false,
           message: passwordError,
+        });
+      }
+
+      if (otp.length !== 6) {
+        return res.status(400).json({
+          success: false,
+          message: "รหัส OTP ไม่ถูกต้อง",
         });
       }
 
@@ -127,10 +261,57 @@ router.post(
 
       if (userExists) {
         return res.status(400).json({
-          message:
-            "Email already exists",
+          success: false,
+          message: "อีเมลนี้ถูกใช้งานแล้ว",
         });
       }
+
+      // ================= CHECK OTP =================
+
+      const otpRecord =
+        await Otp.findOne({
+          email,
+          purpose: "register",
+          used: false,
+        }).sort({
+          createdAt: -1,
+        });
+
+      if (!otpRecord) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณาขอรหัส OTP ก่อนสมัครสมาชิก",
+        });
+      }
+
+      if (otpRecord.expiresAt < new Date()) {
+        await otpRecord.deleteOne();
+
+        return res.status(400).json({
+          success: false,
+          message: "รหัส OTP หมดอายุแล้ว กรุณาขอใหม่",
+        });
+      }
+
+      if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+        return res.status(400).json({
+          success: false,
+          message: "กรอกรหัส OTP ผิดเกินจำนวนที่กำหนด กรุณาขอใหม่",
+        });
+      }
+
+      if (otpRecord.otp !== otp) {
+        otpRecord.attempts += 1;
+        await otpRecord.save();
+
+        return res.status(400).json({
+          success: false,
+          message: "รหัส OTP ไม่ถูกต้อง",
+        });
+      }
+
+      otpRecord.used = true;
+      await otpRecord.save();
 
       // ================= HASH PASSWORD =================
 
@@ -146,8 +327,7 @@ router.post(
         await User.create({
           fullName,
           email,
-          password:
-            hashedPassword,
+          password: hashedPassword,
           userType: "user",
         });
 
@@ -158,32 +338,22 @@ router.post(
           user
         );
 
-      res.status(201).json({
-        message:
-          "Register success",
-
-        accessToken:
-          tokens.accessToken,
-
-        refreshToken:
-          tokens.refreshToken,
-
-        user:
-          buildUserResponse(
-            user
-          ),
+      return res.status(201).json({
+        success: true,
+        message: "สมัครสมาชิกสำเร็จ",
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: buildUserResponse(user),
       });
-
     } catch (err) {
-
       console.error(
         "REGISTER ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
       });
     }
   }
