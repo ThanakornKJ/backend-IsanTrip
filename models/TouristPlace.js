@@ -121,17 +121,6 @@ const touristPlaceSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-        homeCategory: {
-      type: String,
-      enum: ["new", "popular", "recommended", null],
-      default: null,
-      index: true,
-    },
-
-    homeCategoryOrder: {
-      type: Number,
-      default: 0,
-    },
 
     placeImages: {
       type: [placeImageSchema],
