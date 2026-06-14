@@ -539,4 +539,69 @@ router.post("/:tripId/add-festival", protect, async (req, res) => {
   }
 });
 
+// =====================================================
+// ============= REMOVE FESTIVAL FROM TRIP ==============
+// =====================================================
+const removeFestivalFromTrip = async (req, res) => {
+  try {
+    const tripId = req.params.tripId;
+    const festivalId = req.params.festivalId || req.body.festivalId;
+
+    if (!festivalId) {
+      return res.status(400).json({
+        message: "festivalId is required",
+      });
+    }
+
+    const trip = await Trip.findOne({
+      _id: tripId,
+      userId: req.user._id,
+    });
+
+    if (!trip) {
+      return res.status(404).json({
+        message: "Trip not found",
+      });
+    }
+
+    const beforeCount = trip.tripFestivals.length;
+
+    trip.tripFestivals = trip.tripFestivals.filter((item) => {
+      return item.festivalId.toString() !== festivalId;
+    });
+
+    if (trip.tripFestivals.length === beforeCount) {
+      return res.status(404).json({
+        message: "Festival not found in trip",
+      });
+    }
+
+    await trip.save();
+
+    const updatedTrip = await Trip.findById(trip._id)
+      .populate(TRIP_POPULATE)
+      .lean();
+
+    res.json(updatedTrip);
+  } catch (err) {
+    console.error("REMOVE FESTIVAL ERROR:", err);
+
+    res.status(500).json({
+      message: "Remove festival failed",
+    });
+  }
+};
+
+router.post("/:tripId/remove-festival", protect, removeFestivalFromTrip);
+router.delete(
+  "/:tripId/remove-festival/:festivalId",
+  protect,
+  removeFestivalFromTrip
+);
+router.delete(
+  "/:tripId/festivals/:festivalId",
+  protect,
+  removeFestivalFromTrip
+);
+
 module.exports = router;
