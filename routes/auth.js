@@ -94,9 +94,11 @@ const sendOtpEmail = async ({
     throw new Error("RESEND_API_KEY is missing");
   }
 
-  const fromEmail =
-    process.env.RESEND_FROM_EMAIL ||
-    "onboarding@resend.dev";
+  const fromEmail = process.env.RESEND_FROM_EMAIL;
+
+  if (!fromEmail) {
+    throw new Error("RESEND_FROM_EMAIL is missing");
+  }
 
   const { data, error } =
     await resend.emails.send({
@@ -376,7 +378,7 @@ router.post(
       let {
         email,
         password,
-      } = req.body;
+      } = req.body || {};
 
       email =
         normalizeEmail(email);
