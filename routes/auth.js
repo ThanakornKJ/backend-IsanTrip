@@ -367,6 +367,236 @@ router.post(
   }
 );
 
+// =====================================================
+// ============ FORGOT PASSWORD SEND OTP ===============
+// =====================================================
+
+router.post(
+  "/forgot-password/send-otp",
+  async (req, res) => {
+    try {
+      let { email } = req.body || {};
+
+      email = normalizeEmail(email);
+
+      if (!email) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกอีเมล",
+        });
+      }
+
+      const emailRegex =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "รูปแบบอีเมลไม่ถูกต้อง",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        }).select("+password");
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "ไม่พบอีเมลนี้ในระบบ",
+        });
+      }
+
+      if (!user.password) {
+        return res.status(400).json({
+          success: false,
+          message: "บัญชีนี้เข้าสู่ระบบด้วย Facebook ไม่สามารถรีเซ็ตรหัสผ่านได้",
+        });
+      }
+
+      await Otp.deleteMany({
+        email,
+        purpose: "forgot_password",
+        used: false,
+      });
+
+      const otp = createOtpCode();
+
+      await Otp.create({
+        email,
+        otp,
+        purpose: "forgot_password",
+        expiresAt: new Date(
+          Date.now() + OTP_EXPIRE_MS
+        ),
+      });
+
+      await sendOtpEmail({
+        email,
+        otp,
+        subject: "รหัส OTP สำหรับรีเซ็ตรหัสผ่าน Isan Trip",
+        heading: "ยืนยันการรีเซ็ตรหัสผ่าน Isan Trip",
+      });
+
+      return res.json({
+        success: true,
+        message: "ส่งรหัส OTP ไปยังอีเมลแล้ว",
+      });
+    } catch (err) {
+      console.error(
+        "FORGOT PASSWORD SEND OTP ERROR:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: "ส่ง OTP ไม่สำเร็จ",
+        error: err.message,
+      });
+    }
+  }
+);
+
+// =====================================================
+// =============== RESET FORGOT PASSWORD ===============
+// =====================================================
+
+router.post(
+  "/forgot-password/reset",
+  async (req, res) => {
+    try {
+      let {
+        email,
+        otp,
+        password,
+      } = req.body || {};
+
+      email = normalizeEmail(email);
+      otp = otp?.toString().trim() || "";
+
+      if (
+        !email ||
+        !otp ||
+        !password
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกข้อมูลให้ครบ",
+        });
+      }
+
+      const passwordError =
+        validatePassword(password);
+
+      if (passwordError) {
+        return res.status(400).json({
+          success: false,
+          message: passwordError,
+        });
+      }
+
+      if (otp.length !== 6) {
+        return res.status(400).json({
+          success: false,
+          message: "รหัส OTP ไม่ถูกต้อง",
+        });
+      }
+
+      const user =
+        await User.findOne({
+          email,
+        }).select("+password");
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "ไม่พบอีเมลนี้ในระบบ",
+        });
+      }
+
+      if (!user.password) {
+        return res.status(400).json({
+          success: false,
+          message: "บัญชีนี้เข้าสู่ระบบด้วย Facebook ไม่สามารถรีเซ็ตรหัสผ่านได้",
+        });
+      }
+
+      const otpRecord =
+        await Otp.findOne({
+          email,
+          purpose: "forgot_password",
+          used: false,
+        }).sort({
+          createdAt: -1,
+        });
+
+      if (!otpRecord) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณาขอรหัส OTP ก่อนรีเซ็ตรหัสผ่าน",
+        });
+      }
+
+      if (otpRecord.expiresAt < new Date()) {
+        await otpRecord.deleteOne();
+
+        return res.status(400).json({
+          success: false,
+          message: "รหัส OTP หมดอายุแล้ว กรุณาขอใหม่",
+        });
+      }
+
+      if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+        return res.status(400).json({
+          success: false,
+          message: "กรอกรหัส OTP ผิดเกินจำนวนที่กำหนด กรุณาขอใหม่",
+        });
+      }
+
+      if (otpRecord.otp !== otp) {
+        otpRecord.attempts += 1;
+        await otpRecord.save();
+
+        return res.status(400).json({
+          success: false,
+          message: "รหัส OTP ไม่ถูกต้อง",
+        });
+      }
+
+      otpRecord.used = true;
+      await otpRecord.save();
+
+      user.password =
+        await bcrypt.hash(
+          password,
+          10
+        );
+
+      await user.save();
+
+      await RefreshToken.deleteMany({
+        userId: user._id,
+      });
+
+      return res.json({
+        success: true,
+        message: "ตั้งรหัสผ่านใหม่สำเร็จ กรุณาเข้าสู่ระบบอีกครั้ง",
+      });
+    } catch (err) {
+      console.error(
+        "RESET PASSWORD ERROR:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: err.message,
+      });
+    }
+  }
+);
 
 // =====================================================
 // ================= LOGIN =============================
