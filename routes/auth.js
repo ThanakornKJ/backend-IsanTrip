@@ -197,6 +197,7 @@ router.post(
       return res.status(500).json({
         success: false,
         message: "ส่ง OTP ไม่สำเร็จ",
+        error: err.message,
       });
     }
   }
