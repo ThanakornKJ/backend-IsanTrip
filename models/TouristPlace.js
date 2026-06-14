@@ -121,6 +121,10 @@ const touristPlaceSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    categoryOrder: {
+      type: Number,
+      default: 0,
+    },
 
     placeImages: {
       type: [placeImageSchema],
