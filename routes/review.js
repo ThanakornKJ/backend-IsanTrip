@@ -7,7 +7,7 @@ const Review = require("../models/Review");
 const ReviewImage = require("../models/ReviewImage");
 const TouristPlace = require("../models/TouristPlace");
 const Trip = require("../models/Trip");
-
+const Festival = require("../models/Festival");
 const protect = require("../middleware/authMiddleware");
 
 const {
@@ -22,7 +22,7 @@ const { REVIEW_POPULATE } = require("../utils/populateConfig");
 // ================= CONSTANTS =========================
 // =====================================================
 
-const ALLOWED_TARGET_TYPES = ["TouristPlace", "Trip"];
+const ALLOWED_TARGET_TYPES = ["TouristPlace", "Trip", "Festival"];
 
 // =====================================================
 // ================= HELPERS ===========================
@@ -39,6 +39,10 @@ const validateTarget = async (targetId, targetType) => {
 
   if (targetType === "Trip") {
     return !!(await Trip.exists({ _id: targetId }));
+  }
+
+  if (targetType === "Festival") {
+    return !!(await Festival.exists({ _id: targetId }));
   }
 
   return false;

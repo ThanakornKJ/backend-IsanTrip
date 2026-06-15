@@ -29,7 +29,7 @@ const reviewSchema = new mongoose.Schema(
     targetType: {
       type: String,
       required: true,
-      enum: ["TouristPlace", "Trip"],
+      enum: ["TouristPlace", "Trip", "Festival"],
     },
 
     // =====================================
