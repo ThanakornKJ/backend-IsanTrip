@@ -67,15 +67,12 @@ const protect = async (
     // =====================================
     req.user = {
       _id: user._id,
-      fullName:
-        user.fullName,
+      fullName: user.fullName,
       email: user.email,
-      profileImage:
-        user.profileImage,
-      userType:
-        user.userType,
-      facebookId:
-        user.facebookId,
+      profileImage: user.profileImage,
+      userType: user.userType,
+      googleId: user.googleId,
+      authProvider: user.authProvider,
     };
 
     next();

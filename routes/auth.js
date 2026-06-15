@@ -1,12 +1,13 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const passport = require("passport");
+const { OAuth2Client } = require("google-auth-library");
 
 const User = require("../models/User");
 const RefreshToken = require("../models/RefreshToken");
 const { Resend } = require("resend");
 const Otp = require("../models/Otp");
+
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -17,6 +18,9 @@ const authorize = require("../middleware/roleMiddleware");
 
 const router = express.Router();
 
+const googleClient = new OAuth2Client(
+  process.env.GOOGLE_WEB_CLIENT_ID
+);
 
 // =====================================================
 // ================= CONSTANTS =========================
@@ -24,7 +28,10 @@ const router = express.Router();
 
 const REFRESH_EXPIRE_MS =
   7 * 24 * 60 * 60 * 1000;
-const OTP_EXPIRE_MS = 5 * 60 * 1000;
+
+const OTP_EXPIRE_MS =
+  5 * 60 * 1000;
+
 const OTP_MAX_ATTEMPTS = 5;
 
 // =====================================================
@@ -38,7 +45,11 @@ const buildUserResponse = (user) => {
     email: user.email,
     profileImage: user.profileImage || "",
     userType: user.userType,
-    facebookId: user.facebookId || "",
+
+    // GOOGLE LOGIN
+    googleId: user.googleId || "",
+    authProvider: user.authProvider || "local",
+
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -49,7 +60,6 @@ const normalizeEmail = (email = "") => {
 };
 
 const createAndStoreTokens = async (user) => {
-
   const accessToken =
     generateAccessToken(user);
 
@@ -71,7 +81,6 @@ const createAndStoreTokens = async (user) => {
 };
 
 const validatePassword = (password) => {
-
   if (!password || password.length < 6) {
     return "Password ต้องมีอย่างน้อย 6 ตัวอักษร";
   }
@@ -84,7 +93,10 @@ const createOtpCode = () => {
     100000 + Math.random() * 900000
   ).toString();
 };
-const resend = new Resend(process.env.RESEND_API_KEY);
+
+const resend = new Resend(
+  process.env.RESEND_API_KEY
+);
 
 const sendOtpEmail = async ({
   email,
@@ -93,13 +105,18 @@ const sendOtpEmail = async ({
   heading = "ยืนยันอีเมลสำหรับสมัครสมาชิก Isan Trip",
 }) => {
   if (!process.env.RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is missing");
+    throw new Error(
+      "RESEND_API_KEY is missing"
+    );
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL;
 
   if (!fromEmail) {
-    throw new Error("RESEND_FROM_EMAIL is missing");
+    throw new Error(
+      "RESEND_FROM_EMAIL is missing"
+    );
   }
 
   const { data, error } =
@@ -229,8 +246,6 @@ router.post(
       email = normalizeEmail(email);
       otp = otp?.trim();
 
-      // ================= VALIDATION =================
-
       if (
         !fullName ||
         !email ||
@@ -260,8 +275,6 @@ router.post(
         });
       }
 
-      // ================= CHECK EMAIL =================
-
       const userExists =
         await User.findOne({
           email,
@@ -273,8 +286,6 @@ router.post(
           message: "อีเมลนี้ถูกใช้งานแล้ว",
         });
       }
-
-      // ================= CHECK OTP =================
 
       const otpRecord =
         await Otp.findOne({
@@ -301,7 +312,10 @@ router.post(
         });
       }
 
-      if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+      if (
+        otpRecord.attempts >=
+        OTP_MAX_ATTEMPTS
+      ) {
         return res.status(400).json({
           success: false,
           message: "กรอกรหัส OTP ผิดเกินจำนวนที่กำหนด กรุณาขอใหม่",
@@ -321,25 +335,20 @@ router.post(
       otpRecord.used = true;
       await otpRecord.save();
 
-      // ================= HASH PASSWORD =================
-
       const hashedPassword =
         await bcrypt.hash(
           password,
           10
         );
 
-      // ================= CREATE USER =================
-
       const user =
         await User.create({
           fullName,
           email,
           password: hashedPassword,
+          authProvider: "local",
           userType: "user",
         });
-
-      // ================= TOKEN =================
 
       const tokens =
         await createAndStoreTokens(
@@ -362,6 +371,7 @@ router.post(
       return res.status(500).json({
         success: false,
         message: "Server error",
+        error: err.message,
       });
     }
   }
@@ -411,7 +421,7 @@ router.post(
       if (!user.password) {
         return res.status(400).json({
           success: false,
-          message: "บัญชีนี้เข้าสู่ระบบด้วย Facebook ไม่สามารถรีเซ็ตรหัสผ่านได้",
+          message: "บัญชีนี้เข้าสู่ระบบด้วย Google ไม่สามารถรีเซ็ตรหัสผ่านได้",
         });
       }
 
@@ -518,7 +528,7 @@ router.post(
       if (!user.password) {
         return res.status(400).json({
           success: false,
-          message: "บัญชีนี้เข้าสู่ระบบด้วย Facebook ไม่สามารถรีเซ็ตรหัสผ่านได้",
+          message: "บัญชีนี้เข้าสู่ระบบด้วย Google ไม่สามารถรีเซ็ตรหัสผ่านได้",
         });
       }
 
@@ -547,7 +557,10 @@ router.post(
         });
       }
 
-      if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+      if (
+        otpRecord.attempts >=
+        OTP_MAX_ATTEMPTS
+      ) {
         return res.status(400).json({
           success: false,
           message: "กรอกรหัส OTP ผิดเกินจำนวนที่กำหนด กรุณาขอใหม่",
@@ -572,6 +585,10 @@ router.post(
           password,
           10
         );
+
+      if (!user.authProvider) {
+        user.authProvider = "local";
+      }
 
       await user.save();
 
@@ -606,28 +623,22 @@ router.post(
   "/login",
   async (req, res) => {
     try {
-
       let {
         email,
         password,
       } = req.body || {};
 
-      email =
-        normalizeEmail(email);
-
-      // ================= VALIDATION =================
+      email = normalizeEmail(email);
 
       if (
         !email ||
         !password
       ) {
         return res.status(400).json({
-          message:
-            "Email และ Password จำเป็นต้องกรอก",
+          success: false,
+          message: "Email และ Password จำเป็นต้องกรอก",
         });
       }
-
-      // ================= FIND USER =================
 
       const user =
         await User.findOne({
@@ -636,21 +647,17 @@ router.post(
 
       if (!user) {
         return res.status(400).json({
-          message:
-            "Invalid email",
+          success: false,
+          message: "Invalid email",
         });
       }
-
-      // ================= FACEBOOK LOGIN =================
 
       if (!user.password) {
         return res.status(400).json({
-          message:
-            "บัญชีนี้เข้าสู่ระบบด้วย Facebook",
+          success: false,
+          message: "บัญชีนี้เข้าสู่ระบบด้วย Google",
         });
       }
-
-      // ================= CHECK PASSWORD =================
 
       const isMatch =
         await bcrypt.compare(
@@ -660,197 +667,26 @@ router.post(
 
       if (!isMatch) {
         return res.status(400).json({
-          message:
-            "Invalid password",
+          success: false,
+          message: "Invalid password",
         });
       }
-
-      // ================= TOKEN =================
 
       const tokens =
         await createAndStoreTokens(
           user
         );
 
-      res.json({
-        accessToken:
-          tokens.accessToken,
-
-        refreshToken:
-          tokens.refreshToken,
-
-        user:
-          buildUserResponse(
-            user
-          ),
-      });
-
-    } catch (err) {
-
-      console.error(
-        "LOGIN ERROR:",
-        err
-      );
-
-      res.status(500).json({
-        message:
-          "Server error",
-      });
-    }
-  }
-);
-
-
-// =====================================================
-// ================= FACEBOOK MOBILE ===================
-// =====================================================
-
-router.post(
-  "/facebook-mobile",
-  async (req, res) => {
-    try {
-      const { accessToken } = req.body;
-
-      if (!accessToken) {
-        return res.status(400).json({
-          success: false,
-          message: "Access token required",
-        });
-      }
-
-      // ================= VERIFY FACEBOOK TOKEN =================
-      // ตอนนี้เปิด permission email แล้ว
-      // แต่ Facebook บางบัญชีอาจยังไม่ส่ง email กลับมา
-      // ดังนั้นยังต้องมี fallback email เสมอ
-
-      const fbResponse = await fetch(
-        `https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${accessToken}`
-      );
-
-      const fbData = await fbResponse.json();
-
-      if (!fbResponse.ok || fbData.error || !fbData.id) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid Facebook token",
-          error: fbData.error?.message,
-        });
-      }
-
-      const facebookId = fbData.id;
-
-      const facebookEmail = normalizeEmail(
-        fbData.email || ""
-      );
-
-      const fallbackEmail = normalizeEmail(
-        `facebook_${facebookId}@facebook.local`
-      );
-
-      const email =
-        facebookEmail || fallbackEmail;
-
-      const fullName =
-        fbData.name?.trim() || "Facebook User";
-
-      const profileImage =
-        fbData.picture?.data?.url || "";
-
-      const isFallbackEmail = (value = "") => {
-        return value.includes("@facebook.local");
-      };
-
-      // ================= FIND USER =================
-      // หา user จาก facebookId ก่อน
-      // ถ้าไม่มีค่อยหา email จริง
-      // ถ้ายังไม่มีค่อยหา fallback email สำหรับ user เก่าที่เคย login ก่อนเปิด email permission
-
-      let user = await User.findOne({
-        facebookId,
-      });
-
-      if (!user && facebookEmail) {
-        user = await User.findOne({
-          email: facebookEmail,
-        });
-      }
-
-      if (!user) {
-        user = await User.findOne({
-          email: fallbackEmail,
-        });
-      }
-
-      // ================= CREATE USER =================
-
-      if (!user) {
-        user = await User.create({
-          facebookId,
-          fullName,
-          email,
-          profileImage,
-          userType: "user",
-        });
-      } else {
-        let needSave = false;
-
-        // sync facebook id
-        if (!user.facebookId) {
-          user.facebookId = facebookId;
-          needSave = true;
-        }
-
-        // sync name
-        if (!user.fullName && fullName) {
-          user.fullName = fullName;
-          needSave = true;
-        }
-
-        // sync image
-        if (!user.profileImage && profileImage) {
-          user.profileImage = profileImage;
-          needSave = true;
-        }
-
-        // ถ้า user เดิมเคยถูกสร้างด้วย fallback email
-        // แล้วตอนนี้ Facebook ส่ง email จริงมา ให้เปลี่ยนเป็น email จริง
-        if (
-          facebookEmail &&
-          isFallbackEmail(user.email)
-        ) {
-          const emailOwner = await User.findOne({
-            email: facebookEmail,
-            _id: {
-              $ne: user._id,
-            },
-          });
-
-          if (!emailOwner) {
-            user.email = facebookEmail;
-            needSave = true;
-          }
-        }
-
-        if (needSave) {
-          await user.save();
-        }
-      }
-
-      // ================= TOKEN =================
-
-      const tokens =
-        await createAndStoreTokens(user);
-
       return res.json({
         success: true,
-        message: "Facebook login success",
+        message: "Login success",
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         user: buildUserResponse(user),
       });
     } catch (err) {
       console.error(
-        "FACEBOOK MOBILE ERROR:",
+        "LOGIN ERROR:",
         err
       );
 
@@ -863,6 +699,173 @@ router.post(
   }
 );
 
+// =====================================================
+// ================= GOOGLE LOGIN ======================
+// =====================================================
+
+router.post(
+  "/google",
+  async (req, res) => {
+    try {
+      const { idToken } = req.body || {};
+
+      if (!idToken) {
+        return res.status(400).json({
+          success: false,
+          message: "idToken is required",
+        });
+      }
+
+      if (
+        !process.env.GOOGLE_WEB_CLIENT_ID
+      ) {
+        return res.status(500).json({
+          success: false,
+          message: "GOOGLE_WEB_CLIENT_ID is missing",
+        });
+      }
+
+      const ticket =
+        await googleClient.verifyIdToken({
+          idToken,
+          audience:
+            process.env.GOOGLE_WEB_CLIENT_ID,
+        });
+
+      const payload =
+        ticket.getPayload();
+
+      const googleId =
+        payload?.sub;
+
+      const email =
+        normalizeEmail(
+          payload?.email || ""
+        );
+
+      const emailVerified =
+        payload?.email_verified;
+
+      const fullName =
+        payload?.name?.trim() ||
+        email.split("@")[0] ||
+        "Google User";
+
+      const profileImage =
+        payload?.picture || "";
+
+      if (!googleId || !email) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid Google account data",
+        });
+      }
+
+      if (!emailVerified) {
+        return res.status(401).json({
+          success: false,
+          message: "Google email is not verified",
+        });
+      }
+
+      // =====================================
+      // FIND USER
+      // 1) หา user จาก googleId ก่อน
+      // 2) ถ้าไม่เจอ หา account เดิมจาก email
+      // 3) ถ้าไม่เจอ สร้าง user ใหม่
+      // =====================================
+
+      let user =
+        await User.findOne({
+          googleId,
+        });
+
+      if (!user) {
+        user =
+          await User.findOne({
+            email,
+          });
+      }
+
+      if (!user) {
+        user =
+          await User.create({
+            googleId,
+            fullName,
+            email,
+            profileImage,
+            authProvider: "google",
+            userType: "user",
+          });
+      } else {
+        let needSave = false;
+
+        if (!user.googleId) {
+          user.googleId = googleId;
+          needSave = true;
+        }
+
+        if (!user.fullName && fullName) {
+          user.fullName = fullName;
+          needSave = true;
+        }
+
+        if (
+          profileImage &&
+          !user.profileImage
+        ) {
+          user.profileImage =
+            profileImage;
+          needSave = true;
+        }
+
+        if (!user.authProvider) {
+          user.authProvider =
+            user.password
+              ? "local"
+              : "google";
+          needSave = true;
+        }
+
+        if (
+          !user.password &&
+          user.authProvider !== "google"
+        ) {
+          user.authProvider = "google";
+          needSave = true;
+        }
+
+        if (needSave) {
+          await user.save();
+        }
+      }
+
+      const tokens =
+        await createAndStoreTokens(
+          user
+        );
+
+      return res.json({
+        success: true,
+        message: "Google login success",
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: buildUserResponse(user),
+      });
+    } catch (err) {
+      console.error(
+        "GOOGLE LOGIN ERROR:",
+        err
+      );
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Google token",
+        error: err.message,
+      });
+    }
+  }
+);
 
 // =====================================================
 // ================= CURRENT USER ======================
@@ -873,7 +876,6 @@ router.get(
   protect,
   async (req, res) => {
     try {
-
       const user =
         await User.findById(
           req.user._id
@@ -881,25 +883,24 @@ router.get(
 
       if (!user) {
         return res.status(404).json({
-          message:
-            "User not found",
+          success: false,
+          message: "User not found",
         });
       }
 
-      res.json(
+      return res.json(
         buildUserResponse(user)
       );
-
     } catch (err) {
-
       console.error(
         "ME ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: err.message,
       });
     }
   }
@@ -936,7 +937,9 @@ router.post(
       }
 
       const currentUser =
-        await User.findById(req.user._id);
+        await User.findById(
+          req.user._id
+        );
 
       if (!currentUser) {
         return res.status(404).json({
@@ -1009,6 +1012,7 @@ router.post(
     }
   }
 );
+
 // =====================================================
 // ================= UPDATE PROFILE ====================
 // =====================================================
@@ -1098,7 +1102,10 @@ router.put(
             });
           }
 
-          if (otpRecord.attempts >= OTP_MAX_ATTEMPTS) {
+          if (
+            otpRecord.attempts >=
+            OTP_MAX_ATTEMPTS
+          ) {
             return res.status(400).json({
               success: false,
               message: "กรอกรหัส OTP ผิดเกินจำนวนที่กำหนด กรุณาขอใหม่",
@@ -1122,7 +1129,7 @@ router.put(
         }
       }
 
-      // ================= FULLNAME =================
+      // ================= FULL NAME =================
 
       if (fullName !== undefined) {
         const cleanFullName =
@@ -1162,6 +1169,10 @@ router.put(
             password,
             10
           );
+
+        if (!user.authProvider) {
+          user.authProvider = "local";
+        }
       }
 
       await user.save();
@@ -1186,7 +1197,6 @@ router.put(
   }
 );
 
-
 // =====================================================
 // ================= REFRESH TOKEN =====================
 // =====================================================
@@ -1195,55 +1205,43 @@ router.post(
   "/refresh",
   async (req, res) => {
     try {
-
-      const {
-        refreshToken,
-      } = req.body;
+      const { refreshToken } = req.body;
 
       if (!refreshToken) {
         return res.status(401).json({
-          message:
-            "No token",
+          success: false,
+          message: "No token",
         });
       }
 
-      // ================= CHECK TOKEN =================
-
       const storedToken =
         await RefreshToken.findOne({
-          token:
-            refreshToken,
+          token: refreshToken,
         });
 
       if (!storedToken) {
         return res.status(403).json({
-          message:
-            "Invalid token",
+          success: false,
+          message: "Invalid token",
         });
       }
-
-      // ================= CHECK EXPIRE =================
 
       if (
         storedToken.expiresAt <
         new Date()
       ) {
-
         await storedToken.deleteOne();
 
         return res.status(403).json({
-          message:
-            "Expired token",
+          success: false,
+          message: "Expired token",
         });
       }
-
-      // ================= VERIFY JWT =================
 
       const decoded =
         jwt.verify(
           refreshToken,
-          process.env
-            .JWT_REFRESH_SECRET
+          process.env.JWT_REFRESH_SECRET
         );
 
       const user =
@@ -1252,42 +1250,35 @@ router.post(
         );
 
       if (!user) {
-
         await storedToken.deleteOne();
 
         return res.status(404).json({
-          message:
-            "User not found",
+          success: false,
+          message: "User not found",
         });
       }
 
-      // ================= GENERATE ACCESS TOKEN =================
-
       const newAccessToken =
-        generateAccessToken(
-          user
-        );
+        generateAccessToken(user);
 
-      res.json({
-        accessToken:
-          newAccessToken,
+      return res.json({
+        success: true,
+        accessToken: newAccessToken,
       });
-
     } catch (err) {
-
       console.error(
         "REFRESH TOKEN ERROR:",
         err
       );
 
-      res.status(403).json({
-        message:
-          "Expired token",
+      return res.status(403).json({
+        success: false,
+        message: "Expired token",
+        error: err.message,
       });
     }
   }
 );
-
 
 // =====================================================
 // ================= LOGOUT ============================
@@ -1298,32 +1289,28 @@ router.post(
   protect,
   async (req, res) => {
     try {
-
       await RefreshToken.deleteMany({
-        userId:
-          req.user._id,
+        userId: req.user._id,
       });
 
-      res.json({
-        message:
-          "Logged out successfully",
+      return res.json({
+        success: true,
+        message: "Logged out successfully",
       });
-
     } catch (err) {
-
       console.error(
         "LOGOUT ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: err.message,
       });
     }
   }
 );
-
 
 // =====================================================
 // ================= ADMIN DELETE USER =================
@@ -1335,15 +1322,13 @@ router.delete(
   authorize("admin"),
   async (req, res) => {
     try {
-
-      // admin ห้ามลบตัวเอง
       if (
         req.user._id.toString() ===
         req.params.id
       ) {
         return res.status(400).json({
-          message:
-            "Cannot delete yourself",
+          success: false,
+          message: "Cannot delete yourself",
         });
       }
 
@@ -1354,32 +1339,29 @@ router.delete(
 
       if (!user) {
         return res.status(404).json({
-          message:
-            "User not found",
+          success: false,
+          message: "User not found",
         });
       }
 
-      // delete refresh tokens
       await RefreshToken.deleteMany({
-        userId:
-          req.params.id,
+        userId: req.params.id,
       });
 
-      res.json({
-        message:
-          "User deleted successfully",
+      return res.json({
+        success: true,
+        message: "User deleted successfully",
       });
-
     } catch (err) {
-
       console.error(
         "DELETE USER ERROR:",
         err
       );
 
-      res.status(500).json({
-        message:
-          "Server error",
+      return res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: err.message,
       });
     }
   }

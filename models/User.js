@@ -27,7 +27,7 @@ const userSchema =
 
       // =====================================
       // PASSWORD
-      // null ได้สำหรับ Facebook login
+      // null ได้สำหรับ Google login
       // =====================================
       password: {
         type: String,
@@ -35,13 +35,22 @@ const userSchema =
       },
 
       // =====================================
-      // FACEBOOK LOGIN
+      // GOOGLE LOGIN
       // =====================================
-      facebookId: {
+      googleId: {
         type: String,
         unique: true,
         sparse: true,
         index: true,
+      },
+
+      // =====================================
+      // AUTH PROVIDER
+      // =====================================
+      authProvider: {
+        type: String,
+        enum: ["local", "google"],
+        default: "local",
       },
 
       // =====================================
@@ -57,10 +66,7 @@ const userSchema =
       // =====================================
       userType: {
         type: String,
-        enum: [
-          "admin",
-          "user",
-        ],
+        enum: ["admin", "user"],
         default: "user",
         index: true,
       },
@@ -70,13 +76,6 @@ const userSchema =
       versionKey: false,
     }
   );
-
-// =====================================
-// INDEXES
-// =====================================
-// userSchema.index({
-//   email: 1,
-// });
 
 userSchema.index({
   createdAt: -1,

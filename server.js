@@ -5,8 +5,6 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
 
-const passport = require("./config/passport");
-
 // ==========================
 // ROUTES
 // ==========================
@@ -65,8 +63,6 @@ app.use(
   })
 );
 
-app.use(passport.initialize());
-
 // ==========================
 // STATIC FILES
 // ==========================
@@ -76,9 +72,10 @@ app.use(
 );
 
 // ==========================
-// PUBLIC META / FACEBOOK PAGES
+// PUBLIC PAGES
 // ==========================
-// ใช้สำหรับกรอกใน Meta Developer:
+// ใช้สำหรับกรอกใน Google Cloud / OAuth consent screen:
+//
 // Privacy Policy URL:
 // https://backend-isantrip.onrender.com/privacy-policy
 //
@@ -86,7 +83,7 @@ app.use(
 // https://backend-isantrip.onrender.com/terms
 //
 // Data Deletion Instructions URL:
-// https://backend-isantrip.onrender.com/delete-data
+// https://backend-isantrip.onrender.com/data-deletion
 
 app.get("/privacy-policy", (req, res) => {
   res.type("html").send(`
@@ -132,13 +129,13 @@ app.get("/privacy-policy", (req, res) => {
         <h2>1. ข้อมูลที่เราเก็บรวบรวม</h2>
         <p>
           เราอาจเก็บข้อมูลที่จำเป็นต่อการให้บริการ เช่น ชื่อ อีเมล รูปโปรไฟล์
-          ข้อมูลบัญชี Facebook สำหรับการเข้าสู่ระบบ รายการโปรด รีวิว รูปภาพที่ผู้ใช้อัปโหลด
+          ข้อมูลบัญชี Google สำหรับการเข้าสู่ระบบ รายการโปรด รีวิว รูปภาพที่ผู้ใช้อัปโหลด
           และข้อมูลอื่น ๆ ที่ผู้ใช้ให้ไว้ภายในแอป
         </p>
 
-        <h2>2. การเข้าสู่ระบบผ่าน Facebook</h2>
+        <h2>2. การเข้าสู่ระบบผ่าน Google</h2>
         <p>
-          เมื่อผู้ใช้เลือกเข้าสู่ระบบผ่าน Facebook แอปอาจขอข้อมูลพื้นฐานจาก Facebook
+          เมื่อผู้ใช้เลือกเข้าสู่ระบบผ่าน Google แอปอาจขอข้อมูลพื้นฐานจาก Google
           เช่น ชื่อ อีเมล และรูปโปรไฟล์ เพื่อนำมาใช้สร้างบัญชีหรือเข้าสู่ระบบ Isan Trip
         </p>
 
@@ -227,10 +224,10 @@ app.get("/terms", (req, res) => {
           ผู้ใช้มีหน้าที่ดูแลความถูกต้องของข้อมูลบัญชีและความปลอดภัยของการใช้งานบัญชีของตนเอง
         </p>
 
-        <h2>3. การเข้าสู่ระบบผ่าน Facebook</h2>
+        <h2>3. การเข้าสู่ระบบผ่าน Google</h2>
         <p>
-          ผู้ใช้สามารถเข้าสู่ระบบด้วย Facebook ได้ โดยแอปจะใช้ข้อมูลพื้นฐานที่จำเป็น
-          เพื่อสร้างหรือเข้าสู่ระบบบัญชี Isan Trip
+          ผู้ใช้สามารถเข้าสู่ระบบด้วย Google ได้ โดยแอปจะใช้ข้อมูลพื้นฐานที่จำเป็น
+          เช่น ชื่อ อีเมล และรูปโปรไฟล์ เพื่อสร้างหรือเข้าสู่ระบบบัญชี Isan Trip
         </p>
 
         <h2>4. เนื้อหาจากผู้ใช้</h2>
@@ -269,6 +266,30 @@ app.get("/data-deletion", (req, res) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Data Deletion Instructions - Isan Trip</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            line-height: 1.8;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+            color: #222;
+            background: #ffffff;
+          }
+
+          h1, h2 {
+            color: #1f2937;
+          }
+
+          h1 {
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 12px;
+          }
+
+          p, li {
+            font-size: 16px;
+          }
+        </style>
       </head>
       <body>
         <h1>คำแนะนำการลบข้อมูลผู้ใช้ของ Isan Trip</h1>
@@ -290,7 +311,7 @@ app.get("/data-deletion", (req, res) => {
 
         <h2>ข้อมูลที่อาจถูกลบ</h2>
         <p>
-          ข้อมูลบัญชีผู้ใช้ ข้อมูล Facebook Login ที่เชื่อมโยงกับบัญชี
+          ข้อมูลบัญชีผู้ใช้ ข้อมูล Google Login ที่เชื่อมโยงกับบัญชี
           รายการโปรด รีวิว รูปภาพ และข้อมูลอื่น ๆ ที่เกี่ยวข้องกับบัญชีผู้ใช้
         </p>
       </body>
@@ -299,54 +320,8 @@ app.get("/data-deletion", (req, res) => {
 });
 
 // ==========================
-// FACEBOOK DATA DELETION CALLBACK
+// REDIRECT OLD / SLASH URLS
 // ==========================
-// ใช้กรอกใน Meta Developer:
-// https://backend-isantrip.onrender.com/facebook-data-deletion
-
-app.post("/facebook-data-deletion", (req, res) => {
-  const confirmationCode = `isantrip_${Date.now()}`;
-
-  res.type("json").send(
-    JSON.stringify({
-      url: `https://backend-isantrip.onrender.com/data-deletion-status?code=${confirmationCode}`,
-      confirmation_code: confirmationCode,
-    })
-  );
-});
-
-app.get("/facebook-data-deletion", (req, res) => {
-  const confirmationCode = `isantrip_${Date.now()}`;
-
-  res.type("json").send(
-    JSON.stringify({
-      url: `https://backend-isantrip.onrender.com/data-deletion-status?code=${confirmationCode}`,
-      confirmation_code: confirmationCode,
-    })
-  );
-});
-
-app.get("/data-deletion-status", (req, res) => {
-  const code = req.query.code || "";
-
-  res.type("html").send(`
-    <!DOCTYPE html>
-    <html lang="th">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>สถานะการลบข้อมูล - Isan Trip</title>
-      </head>
-      <body>
-        <h1>สถานะการลบข้อมูลผู้ใช้ของ Isan Trip</h1>
-        <p>ระบบได้รับคำขอลบข้อมูลของคุณแล้ว</p>
-        <p>รหัสยืนยัน: <strong>${code}</strong></p>
-        <p>หากมีคำถามเพิ่มเติม กรุณาติดต่อ artyjj11@gmail.com</p>
-      </body>
-    </html>
-  `);
-});
-
 app.get("/privacy-policy/", (req, res) => {
   res.redirect(301, "/privacy-policy");
 });
@@ -356,6 +331,14 @@ app.get("/terms/", (req, res) => {
 });
 
 app.get("/data-deletion/", (req, res) => {
+  res.redirect(301, "/data-deletion");
+});
+
+app.get("/delete-data", (req, res) => {
+  res.redirect(301, "/data-deletion");
+});
+
+app.get("/delete-data/", (req, res) => {
   res.redirect(301, "/data-deletion");
 });
 
